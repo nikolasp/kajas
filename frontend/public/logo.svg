@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 96" role="img" aria-labelledby="title desc">
+  <title id="title">Kajas logo</title>
+  <desc id="desc">Long crossed driving reins passing through harness rings.</desc>
+  <defs>
+    <linearGradient id="leather" x1="13" y1="18" x2="114" y2="78" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#d6a15f"/>
+      <stop offset="0.48" stop-color="#8a4f25"/>
+      <stop offset="1" stop-color="#3a2114"/>
+    </linearGradient>
+    <linearGradient id="strap" x1="13" y1="78" x2="114" y2="18" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f0c678"/>
+      <stop offset="0.5" stop-color="#a76631"/>
+      <stop offset="1" stop-color="#4a2b18"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-25%" width="120%" height="150%">
+      <feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="#020617" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+  <rect width="360" height="96" rx="18" fill="#111827"/>
+  <g filter="url(#shadow)">
+    <path d="M13 27 C31 44, 42 61, 61 62 C83 63, 95 43, 119 67" fill="none" stroke="url(#leather)" stroke-width="8" stroke-linecap="round"/>
+    <path d="M13 69 C31 52, 42 35, 61 34 C83 33, 95 53, 119 29" fill="none" stroke="url(#strap)" stroke-width="8" stroke-linecap="round"/>
+    <path d="M13 27 C31 44, 42 61, 61 62 C83 63, 95 43, 119 67" fill="none" stroke="#f7d89b" stroke-width="1.8" stroke-linecap="round" opacity="0.55"/>
+    <path d="M13 69 C31 52, 42 35, 61 34 C83 33, 95 53, 119 29" fill="none" stroke="#f9dfaa" stroke-width="1.8" stroke-linecap="round" opacity="0.5"/>
+    <circle cx="47" cy="48" r="14" fill="#111827" stroke="#c6a15f" stroke-width="5"/>
+    <circle cx="47" cy="48" r="7" fill="#111827" stroke="#f0d48a" stroke-width="1.8" opacity="0.85"/>
+    <circle cx="86" cy="48" r="14" fill="#111827" stroke="#c6a15f" stroke-width="5"/>
+    <circle cx="86" cy="48" r="7" fill="#111827" stroke="#f0d48a" stroke-width="1.8" opacity="0.85"/>
+    <path d="M59 27 L67 48 L59 69" fill="none" stroke="#f5c66d" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M74 27 L66 48 L74 69" fill="none" stroke="#f5c66d" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M62 48 H71" stroke="#ffe0a3" stroke-width="4" stroke-linecap="round"/>
+  </g>
+  <text x="144" y="61" fill="#f8fafc" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="38" font-weight="750">Kajas</text>
+  <path d="M144 72 H240" stroke="#c6a15f" stroke-width="3" stroke-linecap="round" opacity="0.85"/>
+</svg>

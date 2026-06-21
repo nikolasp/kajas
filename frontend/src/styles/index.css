@@ -1,0 +1,75 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body {
+    @apply bg-ink-900 text-ink-100 font-sans antialiased;
+  }
+  body {
+    @apply min-h-full;
+  }
+  ::selection {
+    @apply bg-accent-600/40 text-white;
+  }
+  a {
+    @apply text-accent-400 hover:text-accent-500;
+  }
+  code, pre, kbd {
+    @apply font-mono text-[0.85rem];
+  }
+}
+
+@layer components {
+  .panel {
+    @apply rounded-2xl border border-ink-700 bg-ink-800/60 shadow-lg shadow-ink-900/30 backdrop-blur-sm;
+  }
+  .panel-header {
+    @apply flex items-center justify-between border-b border-ink-700 px-5 py-3;
+  }
+  .panel-body {
+    @apply p-5;
+  }
+  .label {
+    @apply text-xs font-medium uppercase tracking-wider text-ink-400;
+  }
+  .btn {
+    @apply inline-flex items-center gap-2 rounded-lg border border-ink-700 bg-ink-800 px-3 py-1.5 text-sm font-medium text-ink-100 transition hover:border-ink-500 hover:bg-ink-700 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply inline-flex items-center gap-2 rounded-lg bg-accent-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-accent-500 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-danger {
+    @apply inline-flex items-center gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-1.5 text-sm font-medium text-rose-200 transition hover:bg-rose-500/20;
+  }
+  .input {
+    @apply w-full rounded-lg border border-ink-700 bg-ink-900/60 px-3 py-2 text-sm text-ink-100 placeholder:text-ink-400 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500/50;
+  }
+  .badge {
+    @apply inline-flex items-center rounded-full border border-ink-700 bg-ink-900/70 px-2 py-0.5 text-xs font-medium text-ink-200;
+  }
+  .status-dot {
+    @apply inline-block h-2 w-2 rounded-full;
+  }
+  .status-dot.draft { @apply bg-ink-400; }
+  .status-dot.planning,
+  .status-dot.implementing,
+  .status-dot.verifying { @apply bg-amber-400 animate-pulse; }
+  .status-dot.awaiting_plan_approval,
+  .status-dot.awaiting_final_acceptance { @apply bg-accent-400 animate-pulse; }
+  .status-dot.completed { @apply bg-emerald-400; }
+  .status-dot.failed { @apply bg-rose-500; }
+  .status-dot.cancelled,
+  .status-dot.interrupted { @apply bg-amber-600; }
+  .status-dot.deleted { @apply bg-ink-500; }
+
+  .runs-table-row {
+    @apply grid grid-cols-12 items-center gap-2 border-b border-ink-800 px-5 py-3 text-sm hover:bg-ink-800/40;
+  }
+  .runs-table-header {
+    @apply grid grid-cols-12 gap-2 border-b border-ink-700 px-5 py-2 text-xs font-semibold uppercase tracking-wider text-ink-400;
+  }
+  pre.event-json {
+    @apply whitespace-pre-wrap break-words text-[0.78rem] leading-snug text-ink-200;
+  }
+}

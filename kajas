@@ -1,0 +1,114 @@
+#!/usr/bin/env python3
+"""One-shot launcher for Kajas.
+
+In dev mode (no args, or with ``--dev``), spawns the FastAPI server
+and the Vite dev server in parallel, kills them on Ctrl-C, and tails
+their combined output. The Vite dev server proxies ``/api`` to the
+backend, so the user can open ``http://localhost:5173``.
+
+For production use, prefer ``kajas serve --frontend-dir frontend/dist``.
+"""
+
+from __future__ import annotations
+
+import os
+import shlex
+import signal
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+FRONTEND = ROOT / "frontend"
+
+
+def _run(cmd: list[str], cwd: Path, env: dict[str, str] | None = None) -> subprocess.Popen:
+    return subprocess.Popen(
+        cmd,
+        cwd=cwd,
+        env={**os.environ, **(env or {})},
+        text=True,
+    )
+
+
+def _stream(prefix: str, popen: subprocess.Popen) -> None:
+    """Read from a subprocess's stdout and prefix each line.
+
+    Runs on the main thread; callers should use ``select`` if they
+    have multiple children, but for two processes a simple sequential
+    poll is fine.
+    """
+    import select
+
+    while True:
+        if popen.poll() is not None:
+            break
+        rlist, _, _ = select.select([popen.stdout], [], [], 0.1)
+        if not rlist:
+            continue
+        line = popen.stdout.readline()
+        if not line:
+            break
+        sys.stdout.write(f"[{prefix}] {line}")
+        sys.stdout.flush()
+
+
+def dev() -> int:
+    backend_cmd = [
+        sys.executable,
+        "-m",
+        "uvicorn",
+        "kajas.server:create_app",
+        "--factory",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8765",
+        "--log-level",
+        "info",
+    ]
+    frontend_cmd = ["npm", "run", "dev", "--", "--host", "127.0.0.1", "--port", "5173"]
+    print("starting backend:", " ".join(shlex.quote(c) for c in backend_cmd))
+    print("starting frontend:", " ".join(shlex.quote(c) for c in frontend_cmd))
+    backend = _run(backend_cmd, cwd=ROOT / "backend")
+    frontend = _run(frontend_cmd, cwd=FRONTEND)
+
+    def _shutdown(*_a):
+        for p in (backend, frontend):
+            if p.poll() is None:
+                p.terminate()
+        for p in (backend, frontend):
+            try:
+                p.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                p.kill()
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, _shutdown)
+    signal.signal(signal.SIGTERM, _shutdown)
+
+    try:
+        while True:
+            time.sleep(0.1)
+            if backend.poll() is not None and frontend.poll() is not None:
+                break
+    except KeyboardInterrupt:
+        _shutdown()
+    return 0
+
+
+def main() -> int:
+    if len(sys.argv) > 1 and sys.argv[1] == "--dev":
+        return dev()
+    if len(sys.argv) == 1:
+        return dev()
+    # Otherwise, defer to the kajas CLI.
+    sys.path.insert(0, str(ROOT / "backend"))
+    from kajas.cli import main as cli_main
+
+    return cli_main(sys.argv[1:])
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

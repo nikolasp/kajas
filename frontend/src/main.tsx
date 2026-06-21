@@ -1,0 +1,31 @@
+import React from "react";
+import ReactDOM from "react-dom/client";
+import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
+import App from "./App";
+import { Login } from "./pages/Login";
+import { Dashboard } from "./pages/Dashboard";
+import { Projects } from "./pages/Projects";
+import { Config } from "./pages/Config";
+import { NewRun } from "./pages/NewRun";
+import { RunDetail } from "./pages/RunDetail";
+import { Health } from "./pages/Health";
+import "./styles/index.css";
+
+ReactDOM.createRoot(document.getElementById("root")!).render(
+  <React.StrictMode>
+    <HashRouter>
+      <Routes>
+        <Route path="/login" element={<Login />} />
+        <Route element={<App />}>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/projects" element={<Projects />} />
+          <Route path="/config" element={<Config />} />
+          <Route path="/runs/new" element={<NewRun />} />
+          <Route path="/runs/:runId" element={<RunDetail />} />
+          <Route path="/health" element={<Health />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Route>
+      </Routes>
+    </HashRouter>
+  </React.StrictMode>,
+);
