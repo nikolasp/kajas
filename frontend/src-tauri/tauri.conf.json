@@ -17,6 +17,8 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "icon": []
+    "icon": [],
+    "externalBin": ["binaries/kajas-backend"],
+    "resources": ["../dist"]
   }
 }

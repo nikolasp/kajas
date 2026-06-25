@@ -88,12 +88,15 @@ kajas serve --frontend-dir frontend/dist
 Kajas has a Tauri v2 desktop wrapper under `frontend/src-tauri/`. The
 desktop shell starts the Python backend on localhost, serves the built
 Vite UI through that backend, and opens a native webview window against
-it.
+it. Desktop builds package the Python backend as a Tauri sidecar with
+PyInstaller, so the app does not need `python3 -m kajas.cli` at
+runtime.
 
 Prerequisites:
 
 - Rust/Cargo via <https://rustup.rs/>.
-- The backend importable from this checkout, or installed as `kajas`.
+- Python 3 plus `venv` support for the local PyInstaller packaging
+  environment.
 - The frontend dependencies installed with `npm install` in
   `frontend/`.
 
@@ -120,9 +123,10 @@ npm run desktop:bundle                 # all configured bundles, including AppIm
 ```
 
 By default the wrapper launches `python3 -m kajas.cli serve` with
-`PYTHONPATH` pointed at `../backend`. Override `KAJAS_BACKEND_CMD` to
-use another executable, and `KAJAS_DESKTOP_PORT` if port `8765` is not
-available.
+`PYTHONPATH` pointed at `../backend` only when running from source or
+when `KAJAS_BACKEND_CMD` is set. Packaged apps launch the bundled
+`kajas-backend` sidecar. Override `KAJAS_DESKTOP_PORT` if port `8765`
+is not available.
 
 ## CLI
 
