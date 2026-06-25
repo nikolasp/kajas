@@ -11,10 +11,11 @@ venv/
 node_modules/
 dist/
 build/
+target/
+frontend/src-tauri/gen/
 .cache/
 .kajas/
 .idea/
 .vscode/
 .DS_Store
 *.log
-

@@ -1,11 +1,31 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Kajas favicon">
-  <rect width="64" height="64" rx="14" fill="#111827"/>
-  <path d="M10 19 C21 27, 28 39, 40 40 C48 41, 53 36, 58 33" fill="none" stroke="#9a5b2c" stroke-width="7" stroke-linecap="round"/>
-  <path d="M10 45 C21 37, 28 25, 40 24 C48 23, 53 28, 58 31" fill="none" stroke="#d6a15f" stroke-width="7" stroke-linecap="round"/>
-  <path d="M10 19 C21 27, 28 39, 40 40 C48 41, 53 36, 58 33" fill="none" stroke="#f7d89b" stroke-width="1.5" stroke-linecap="round" opacity="0.55"/>
-  <path d="M10 45 C21 37, 28 25, 40 24 C48 23, 53 28, 58 31" fill="none" stroke="#f9dfaa" stroke-width="1.5" stroke-linecap="round" opacity="0.5"/>
-  <circle cx="24" cy="32" r="9" fill="#111827" stroke="#c6a15f" stroke-width="4"/>
-  <circle cx="42" cy="32" r="9" fill="#111827" stroke="#c6a15f" stroke-width="4"/>
-  <path d="M28 20 L34 32 L28 44" fill="none" stroke="#f5c66d" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M38 20 L32 32 L38 44" fill="none" stroke="#f5c66d" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Kajas favicon">
+  <defs>
+    <linearGradient id="leather" x1="17" y1="39" x2="118" y2="99" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#d6a15f"/>
+      <stop offset="0.48" stop-color="#8a4f25"/>
+      <stop offset="1" stop-color="#3a2114"/>
+    </linearGradient>
+    <linearGradient id="strap" x1="17" y1="99" x2="118" y2="39" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f0c678"/>
+      <stop offset="0.5" stop-color="#a76631"/>
+      <stop offset="1" stop-color="#4a2b18"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-25%" width="120%" height="150%">
+      <feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="#020617" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+  <rect width="128" height="128" rx="28" fill="#111827"/>
+  <g transform="translate(4 16)" filter="url(#shadow)">
+    <path d="M13 27 C31 44, 42 61, 61 62 C83 63, 95 43, 119 67" fill="none" stroke="url(#leather)" stroke-width="8" stroke-linecap="round"/>
+    <path d="M13 69 C31 52, 42 35, 61 34 C83 33, 95 53, 119 29" fill="none" stroke="url(#strap)" stroke-width="8" stroke-linecap="round"/>
+    <path d="M13 27 C31 44, 42 61, 61 62 C83 63, 95 43, 119 67" fill="none" stroke="#f7d89b" stroke-width="1.8" stroke-linecap="round" opacity="0.55"/>
+    <path d="M13 69 C31 52, 42 35, 61 34 C83 33, 95 53, 119 29" fill="none" stroke="#f9dfaa" stroke-width="1.8" stroke-linecap="round" opacity="0.5"/>
+    <circle cx="47" cy="48" r="14" fill="#111827" stroke="#c6a15f" stroke-width="5"/>
+    <circle cx="47" cy="48" r="7" fill="#111827" stroke="#f0d48a" stroke-width="1.8" opacity="0.85"/>
+    <circle cx="86" cy="48" r="14" fill="#111827" stroke="#c6a15f" stroke-width="5"/>
+    <circle cx="86" cy="48" r="7" fill="#111827" stroke="#f0d48a" stroke-width="1.8" opacity="0.85"/>
+    <path d="M59 27 L67 48 L59 69" fill="none" stroke="#f5c66d" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M74 27 L66 48 L74 69" fill="none" stroke="#f5c66d" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M62 48 H71" stroke="#ffe0a3" stroke-width="4" stroke-linecap="round"/>
+  </g>
 </svg>
