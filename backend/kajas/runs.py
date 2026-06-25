@@ -39,7 +39,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
 from .adapters.base import (
@@ -179,26 +178,21 @@ class RunRecord(BaseModel):
 
 
 def run_dir(project_path: Path, run_id: str) -> Path:
-    return project_path / ".kajas" / "runs" / run_id
+    from .run_store import DEFAULT_RUN_STORE
+
+    return DEFAULT_RUN_STORE.run_dir(project_path, run_id)
 
 
 def _write_run_md(record: RunRecord, body: str, path: Path) -> None:
-    front = record.model_dump(mode="json")
-    payload = yaml.safe_dump(front, sort_keys=False, allow_unicode=True)
-    path.write_text(f"---\n{payload}---\n\n{body}\n", encoding="utf-8")
+    from .run_store import DEFAULT_RUN_STORE
+
+    DEFAULT_RUN_STORE.write_run_md(record, body, path)
 
 
 def _read_run_md(path: Path) -> tuple[RunRecord, str]:
-    text = path.read_text(encoding="utf-8")
-    if not text.startswith("---\n"):
-        raise ValueError(f"{path} is not a run.md file (missing frontmatter)")
-    end = text.find("\n---\n", 4)
-    if end == -1:
-        raise ValueError(f"{path} is not a run.md file (unterminated frontmatter)")
-    fm = yaml.safe_load(text[4:end])
-    body = text[end + 5 :].lstrip("\n")
-    record = RunRecord.model_validate(fm)
-    return record, body
+    from .run_store import DEFAULT_RUN_STORE
+
+    return DEFAULT_RUN_STORE.read_run_md(path)
 
 
 # ---------------------------------------------------------------------------
@@ -333,13 +327,8 @@ class Orchestrator:
         if planner is None or implementor is None:
             raise KeyError("workflow references missing agents")
 
-        run_id = make_run_id(title or prompt[:32])
-        rdir = run_dir(project_path, run_id)
-        (rdir / "prompts").mkdir(parents=True, exist_ok=True)
-        (rdir / "raw").mkdir(parents=True, exist_ok=True)
-
         record = RunRecord(
-            id=run_id,
+            id=make_run_id(title or prompt[:32]),
             project_path=str(project_path),
             project_name=project_name,
             status="draft",
@@ -357,22 +346,15 @@ class Orchestrator:
         if overrides:
             _apply_overrides(record.effective_config, overrides)
 
-        # Materialise the planner's first prompt.
-        (rdir / "prompts" / "planner.md").write_text(
-            _render_planner_prompt(record, merged, workflow, planner, project_path),
-            encoding="utf-8",
-        )
-        (rdir / "plan.md").write_text(
-            "# Plan\n\n_Pending planner output._\n", encoding="utf-8"
-        )
-        (rdir / "plan.approved.md").write_text(
-            "# Approved Plan\n\n_Pending user approval._\n", encoding="utf-8"
-        )
-        (rdir / "approvals.md").write_text("# Approvals\n", encoding="utf-8")
-        (rdir / "events.ndjson").write_text("", encoding="utf-8")
+        from .run_store import DEFAULT_RUN_STORE
 
-        body = _render_run_body(record)
-        _write_run_md(record, body, rdir / "run.md")
+        rdir = DEFAULT_RUN_STORE.create_run(
+            project_path,
+            record,
+            planner_prompt=_render_planner_prompt(
+                record, merged, workflow, planner, project_path
+            ),
+        )
 
         handle = RunHandle(record=record, dir=rdir)
         self._register(handle)
@@ -472,8 +454,12 @@ class Orchestrator:
                 f"cannot approve plan in status {handle.record.status!r}"
             )
         with handle._lock:
+            from .run_store import DEFAULT_RUN_STORE
+
             if edited_plan is not None:
-                (handle.dir / "plan.approved.md").write_text(edited_plan, encoding="utf-8")
+                DEFAULT_RUN_STORE.write_text(
+                    handle.dir, DEFAULT_RUN_STORE.approved_plan_file, edited_plan
+                )
                 handle._approved_plan = edited_plan
             handle.record.plan_approved_at = dt.datetime.now().isoformat(timespec="seconds")
             handle.record.approvals.append(
@@ -485,11 +471,7 @@ class Orchestrator:
             )
             handle.record.status = "implementing"
             handle.record.touch()
-            _write_run_md(
-                handle.record,
-                _render_run_body(handle.record),
-                handle.dir / "run.md",
-            )
+            DEFAULT_RUN_STORE.save_record(handle.dir, handle.record)
         # Unblock the agent thread that is paused at the gate.
         handle._plan_approved.set()
 
@@ -507,9 +489,9 @@ class Orchestrator:
             raise RuntimeError(
                 f"cannot delete run in status {handle.record.status!r}"
             )
-        import shutil
+        from .run_store import DEFAULT_RUN_STORE
 
-        shutil.rmtree(handle.dir, ignore_errors=True)
+        DEFAULT_RUN_STORE.delete(Path(handle.record.project_path), handle.record.id)
         self._drop(run_id)
 
     # ---- agent thread ----------------------------------------------------
@@ -531,11 +513,7 @@ class Orchestrator:
                     "Set allow_unenforced_policy: true to override."
                 )
                 handle.record.touch()
-                _write_run_md(
-                    handle.record,
-                    _render_run_body(handle.record),
-                    handle.dir / "run.md",
-                )
+                _persist(handle)
                 return
 
             # ---- Planning ------------------------------------------------
@@ -734,9 +712,9 @@ class Orchestrator:
 
 
 def _emit(handle: RunHandle, ev: NormalizedEvent) -> None:
-    line = ev.model_dump_json()
-    with (handle.dir / "events.ndjson").open("a", encoding="utf-8") as fh:
-        fh.write(line + "\n")
+    from .run_store import DEFAULT_RUN_STORE
+
+    DEFAULT_RUN_STORE.append_event(handle.dir, ev)
     handle._broadcast(ev)
 
 
@@ -754,11 +732,9 @@ def _record_usage(handle: RunHandle, ev: NormalizedEvent) -> None:
 
 
 def _persist(handle: RunHandle) -> None:
-    _write_run_md(
-        handle.record,
-        _render_run_body(handle.record),
-        handle.dir / "run.md",
-    )
+    from .run_store import DEFAULT_RUN_STORE
+
+    DEFAULT_RUN_STORE.save_record(handle.dir, handle.record)
 
 
 def _persist_and_emit_status(handle: RunHandle, stage: Stage) -> None:
@@ -778,28 +754,22 @@ def _write_plan(handle: RunHandle, ev: NormalizedEvent) -> None:
     if ev.type != "final" or ev.artifact != "plan.md":
         return
     plan_yaml = (ev.extra or {}).get("plan_yaml")
+    from .run_store import DEFAULT_RUN_STORE
+
     if plan_yaml:
-        handle.dir.joinpath("plan.md").write_text(plan_yaml, encoding="utf-8")
+        DEFAULT_RUN_STORE.write_text(handle.dir, DEFAULT_RUN_STORE.plan_file, plan_yaml)
     else:
         # Fall back to whatever the agent emitted as its final message.
         text = ev.text or "(no plan content)"
-        handle.dir.joinpath("plan.md").write_text(f"# Plan\n\n{text}\n", encoding="utf-8")
+        DEFAULT_RUN_STORE.write_text(
+            handle.dir, DEFAULT_RUN_STORE.plan_file, f"# Plan\n\n{text}\n"
+        )
 
 
 def _render_run_body(record: RunRecord) -> str:
-    parts: list[str] = []
-    parts.append(f"# {record.title or record.id}\n")
-    parts.append("## Prompt\n")
-    parts.append(record.prompt.strip() + "\n")
-    parts.append("## Effective Config Snapshot\n")
-    parts.append("```yaml\n" + yaml.safe_dump(record.effective_config, sort_keys=False, allow_unicode=True) + "```\n")
-    if record.error:
-        parts.append("## Error\n")
-        parts.append(record.error + "\n")
-    if record.final_summary:
-        parts.append("## Final Summary\n")
-        parts.append(record.final_summary + "\n")
-    return "\n".join(parts)
+    from .run_store import DEFAULT_RUN_STORE
+
+    return DEFAULT_RUN_STORE.render_run_body(record)
 
 
 def _render_planner_prompt(
@@ -839,14 +809,20 @@ def _materialise_planner_prompt(
 ) -> None:
     workflow = merged.workflows[handle.record.workflow]
     text = _render_planner_prompt(handle.record, merged, workflow, profile, project_path)
-    (handle.dir / "prompts" / "planner.md").write_text(text, encoding="utf-8")
+    from .run_store import DEFAULT_RUN_STORE
+
+    DEFAULT_RUN_STORE.write_text(handle.dir, "prompts/planner.md", text)
 
 
 def _materialise_implementor_prompt(
     handle: RunHandle, merged: GlobalConfig, profile: AgentProfile, project_path: Path
 ) -> None:
     policy = effective_policy(merged, profile)
-    plan_text = (handle.dir / "plan.approved.md").read_text(encoding="utf-8")
+    from .run_store import DEFAULT_RUN_STORE
+
+    plan_text = DEFAULT_RUN_STORE.read_text(
+        handle.dir, DEFAULT_RUN_STORE.approved_plan_file
+    ) or ""
     text = (
         f"# Implementor Brief for Run {handle.record.id}\n\n"
         f"## Project\n\n`{project_path}`\n\n"
@@ -860,7 +836,7 @@ def _materialise_implementor_prompt(
         f"When done, emit a final event with `artifact=final.md` and a\n"
         f"short summary in `text`.\n"
     )
-    (handle.dir / "prompts" / "implementor.md").write_text(text, encoding="utf-8")
+    DEFAULT_RUN_STORE.write_text(handle.dir, "prompts/implementor.md", text)
 
 
 def _resolve_run_policy(
@@ -963,8 +939,12 @@ def _run_verification(handle: RunHandle, workflow: WorkflowSpec, project_path: P
             results.append(f"## `{cmd}` (exit={proc.returncode})\n\n```\n{proc.stdout[-2000:]}\n{proc.stderr[-500:]}\n```")
         except Exception as exc:  # noqa: BLE001
             results.append(f"## `{cmd}` (error)\n\n```\n{exc}\n```")
-    (handle.dir / "verification.md").write_text("\n\n".join(results), encoding="utf-8")
-    handle.record.final_summary = (handle.dir / "verification.md").read_text(encoding="utf-8")
+    from .run_store import DEFAULT_RUN_STORE
+
+    DEFAULT_RUN_STORE.write_text(handle.dir, "verification.md", "\n\n".join(results))
+    handle.record.final_summary = (
+        DEFAULT_RUN_STORE.read_text(handle.dir, "verification.md") or ""
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -973,42 +953,22 @@ def _run_verification(handle: RunHandle, workflow: WorkflowSpec, project_path: P
 
 
 def discover_runs(project_path: Path) -> list[RunRecord]:
-    runs_dir = project_path / ".kajas" / "runs"
-    if not runs_dir.exists():
-        return []
-    records: list[RunRecord] = []
-    for child in sorted(runs_dir.iterdir()):
-        run_md = child / "run.md"
-        if not run_md.is_file():
-            continue
-        try:
-            record, _ = _read_run_md(run_md)
-        except Exception:  # noqa: BLE001
-            continue
-        records.append(record)
-    return records
+    from .run_store import DEFAULT_RUN_STORE
+
+    return DEFAULT_RUN_STORE.discover(project_path)
 
 
 def load_run(project_path: Path, run_id: str) -> RunRecord | None:
-    run_md = run_dir(project_path, run_id) / "run.md"
-    if not run_md.exists():
-        return None
-    record, _ = _read_run_md(run_md)
-    return record
+    from .run_store import DEFAULT_RUN_STORE
+
+    return DEFAULT_RUN_STORE.read_record(project_path, run_id)
 
 
 def mark_interrupted_on_startup(project_path: Path) -> list[str]:
     """Mark any in-flight run as ``interrupted`` so the UI can offer rerun/delete."""
-    interrupted: list[str] = []
-    for record in discover_runs(project_path):
-        if record.status in IN_FLIGHT_STATUSES:
-            record.status = "interrupted"
-            record.error = "Server restarted while run was in flight."
-            record.touch()
-            run_md = run_dir(project_path, record.id) / "run.md"
-            _write_run_md(record, _render_run_body(record), run_md)
-            interrupted.append(record.id)
-    return interrupted
+    from .run_store import DEFAULT_RUN_STORE
+
+    return DEFAULT_RUN_STORE.mark_interrupted_on_startup(project_path)
 
 
 __all__ = [
@@ -1029,6 +989,6 @@ __all__ = [
 
 
 def delete_run_dir(project_path: Path, run_id: str) -> None:
-    import shutil
+    from .run_store import DEFAULT_RUN_STORE
 
-    shutil.rmtree(run_dir(project_path, run_id), ignore_errors=True)
+    DEFAULT_RUN_STORE.delete(project_path, run_id)

@@ -34,11 +34,26 @@ cd frontend && npm install && cd ..
 kajas init           # writes config.yaml; prompts for a passphrase
 
 # 4. Start the dev server (backend on :8765, Vite on :5173)
-kajas                # or: kajas --dev
+make dev             # or: ./kajas --dev
 ```
 
 Open <http://127.0.0.1:5173> and sign in with the passphrase you set
 in step 3.
+
+Dev server settings can be adjusted with environment variables:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `KAJAS_VITE_HOST` | `0.0.0.0` | Host Vite binds to. |
+| `KAJAS_VITE_PORT` | `5173` | Vite dev server port. |
+| `KAJAS_VITE_ALLOWED_HOSTS` | unset | Comma-separated host allow-list for Vite. Use `*` to allow any host. |
+| `KAJAS_API_PROXY_TARGET` | `http://127.0.0.1:8765` | Backend target for Vite's `/api` proxy. |
+
+For example, to reach Vite through a specific hostname:
+
+```bash
+KAJAS_VITE_HOST=0.0.0.0 KAJAS_VITE_ALLOWED_HOSTS=my-host.example.com make dev
+```
 
 The starter global config includes the default real workflow:
 

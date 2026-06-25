@@ -68,7 +68,7 @@ def dev() -> int:
         "--log-level",
         "info",
     ]
-    frontend_cmd = ["npm", "run", "dev", "--", "--host", "127.0.0.1", "--port", "5173"]
+    frontend_cmd = ["npm", "run", "dev"]
     print("starting backend:", " ".join(shlex.quote(c) for c in backend_cmd))
     print("starting frontend:", " ".join(shlex.quote(c) for c in frontend_cmd))
     backend = _run(backend_cmd, cwd=ROOT / "backend")

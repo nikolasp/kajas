@@ -72,17 +72,11 @@ from .projects import (
     list_projects,
     unregister_project,
 )
+from .run_store import DEFAULT_RUN_STORE, RunStore
 from .runs import (
-    IN_FLIGHT_STATUSES,
     Orchestrator,
-    RunHandle,
     RunRecord,
     TERMINAL_STATUSES,
-    discover_runs,
-    load_run,
-    make_run_id,
-    mark_interrupted_on_startup,
-    run_dir,
 )
 
 
@@ -104,7 +98,7 @@ async def _lifespan(app: FastAPI):
     # ``interrupted`` so the UI can offer rerun / archive / delete.
     for project in cfg.projects:
         try:
-            mark_interrupted_on_startup(Path(project.path))
+            DEFAULT_RUN_STORE.mark_interrupted_on_startup(Path(project.path))
         except Exception:  # noqa: BLE001
             log.exception("interrupted sweep failed for %s", project.path)
     if not hasattr(app.state, "orchestrator"):
@@ -242,7 +236,7 @@ def _wire_routes(app: FastAPI) -> None:
         runs: list[dict[str, Any]] = []
         for project in cfg.projects:
             project_path = Path(project.path)
-            for record in discover_runs(project_path):
+            for record in DEFAULT_RUN_STORE.discover(project_path):
                 runs.append(_run_summary(record))
         runs.sort(key=lambda r: r.get("updated_at", ""), reverse=True)
         return {"runs": runs[:200]}
@@ -373,12 +367,9 @@ def _wire_routes(app: FastAPI) -> None:
         cfg = load_global_config()
         for project in cfg.projects:
             project_path = Path(project.path)
-            rdir = run_dir(project_path, run_id)
-            if not rdir.exists():
-                continue
-            record = load_run(project_path, run_id)
+            record = DEFAULT_RUN_STORE.read_record(project_path, run_id)
             if record is None:
-                raise HTTPException(status_code=404, detail="run not found")
+                continue
             return _run_summary(record, with_body=True)
         raise HTTPException(status_code=404, detail="run not found")
 
@@ -389,18 +380,17 @@ def _wire_routes(app: FastAPI) -> None:
         cfg = load_global_config()
         for project in cfg.projects:
             project_path = Path(project.path)
-            rdir = run_dir(project_path, run_id)
-            if not rdir.exists():
+            if not DEFAULT_RUN_STORE.exists(project_path, run_id):
                 continue
             orch: Orchestrator = request.app.state.orchestrator
             handle = orch.get(run_id)
             if handle is None:
-                # Run is on disk but not active; replay events.ndjson.
+                # Run is on disk but not active; replay stored events.
                 async def _replay() -> Any:
-                    events_path = rdir / "events.ndjson"
-                    if events_path.exists():
-                        for line in events_path.read_text(encoding="utf-8").splitlines():
-                            yield f"data: {line}\n\n"
+                    for line in DEFAULT_RUN_STORE.replay_event_lines(
+                        project_path, run_id
+                    ):
+                        yield f"data: {line}\n\n"
                     yield 'data: {"type":"log","stage":"planning","text":"end of replay"}\n\n'
 
                 return StreamingResponse(_replay(), media_type="text/event-stream")
@@ -410,12 +400,8 @@ def _wire_routes(app: FastAPI) -> None:
                 try:
                     # First flush the historical events so a UI that
                     # opens the stream late catches up.
-                    events_path = rdir / "events.ndjson"
-                    if events_path.exists():
-                        for line in events_path.read_text(encoding="utf-8").splitlines():
-                            if not line.strip():
-                                continue
-                            yield f"data: {line}\n\n"
+                    for line in DEFAULT_RUN_STORE.replay_event_lines(project_path, run_id):
+                        yield f"data: {line}\n\n"
                     while True:
                         if await request.is_disconnected():
                             break
@@ -470,7 +456,7 @@ def _wire_routes(app: FastAPI) -> None:
         orch: Orchestrator = request.app.state.orchestrator
         for project in cfg.projects:
             project_path = Path(project.path)
-            if not run_dir(project_path, run_id).exists():
+            if not DEFAULT_RUN_STORE.exists(project_path, run_id):
                 continue
             try:
                 handle = orch.rerun_failed_phase(
@@ -490,7 +476,27 @@ def _wire_routes(app: FastAPI) -> None:
         run_id: str, request: Request, _: SessionUser = Depends(require_user)
     ) -> dict[str, Any]:
         orch: Orchestrator = request.app.state.orchestrator
-        orch.delete(run_id)
+        handle = orch.get(run_id)
+        if handle is not None:
+            try:
+                orch.delete(run_id)
+            except RuntimeError as exc:
+                raise HTTPException(status_code=409, detail=str(exc))
+            return {"ok": True}
+
+        cfg = load_global_config()
+        for project in cfg.projects:
+            project_path = Path(project.path)
+            record = DEFAULT_RUN_STORE.read_record(project_path, run_id)
+            if record is None:
+                continue
+            if record.status not in TERMINAL_STATUSES + ("interrupted", "draft"):
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"cannot delete run in status {record.status!r}",
+                )
+            DEFAULT_RUN_STORE.delete(project_path, run_id)
+            return {"ok": True}
         return {"ok": True}
 
     # ----- Health ----------------------------------------------------
@@ -541,7 +547,12 @@ def _must_inspect(name: str) -> ProjectInfo:
         raise HTTPException(status_code=404, detail=str(exc))
 
 
-def _run_summary(record: RunRecord, *, with_body: bool = False) -> dict[str, Any]:
+def _run_summary(
+    record: RunRecord,
+    *,
+    with_body: bool = False,
+    store: RunStore = DEFAULT_RUN_STORE,
+) -> dict[str, Any]:
     usage = {k: v.model_dump(mode="json") if v else None for k, v in record.usage.items()}
     total = sum((u.get("total_tokens") or 0) for u in usage.values() if u)
     out: dict[str, Any] = {
@@ -564,15 +575,9 @@ def _run_summary(record: RunRecord, *, with_body: bool = False) -> dict[str, Any
         out["prompt"] = record.prompt
         out["effective_config"] = record.effective_config
         out["final_summary"] = record.final_summary
-        rdir = run_dir(Path(record.project_path), record.id)
-        plan_path = rdir / "plan.md"
-        approved_plan_path = rdir / "plan.approved.md"
-        out["plan"] = plan_path.read_text(encoding="utf-8") if plan_path.exists() else None
-        out["approved_plan"] = (
-            approved_plan_path.read_text(encoding="utf-8")
-            if approved_plan_path.exists()
-            else None
-        )
+        plan, approved_plan = store.plan_texts(Path(record.project_path), record.id)
+        out["plan"] = plan
+        out["approved_plan"] = approved_plan
     return out
 
 
