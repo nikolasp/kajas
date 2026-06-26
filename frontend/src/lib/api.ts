@@ -130,6 +130,28 @@ export const api = {
   health: () => request<any>("/api/health"),
   toolSmoke: () =>
     request<any>("/api/health/tool-smoke", { method: "POST" }),
+
+  // Benchmarks
+  benchmarks: () => request<any[]>("/api/benchmarks"),
+  createBenchmark: (input: {
+    base_url: string;
+    api_key?: string | null;
+    custom_headers?: Record<string, string>;
+    model?: string | null;
+    max_context_tokens?: number | null;
+    coding_judge_tool?: "codex" | "pi";
+    coding_judge_model?: string;
+  }) =>
+    request<any>("/api/benchmarks", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  benchmark: (id: string) =>
+    request<any>(`/api/benchmarks/${encodeURIComponent(id)}`),
+  deleteBenchmark: (id: string) =>
+    request<{ ok: boolean }>(`/api/benchmarks/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    }),
 };
 
 /**

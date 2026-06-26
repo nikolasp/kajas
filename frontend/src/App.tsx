@@ -7,6 +7,7 @@ const NAV = [
   { to: "/projects", label: "Projects" },
   { to: "/config", label: "Config" },
   { to: "/runs/new", label: "New Run" },
+  { to: "/benchmark", label: "Benchmark" },
   { to: "/health", label: "Health" },
 ];
 

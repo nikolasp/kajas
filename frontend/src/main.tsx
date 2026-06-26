@@ -9,6 +9,8 @@ import { Config } from "./pages/Config";
 import { NewRun } from "./pages/NewRun";
 import { RunDetail } from "./pages/RunDetail";
 import { Health } from "./pages/Health";
+import { Benchmark } from "./pages/Benchmark";
+import { BenchmarkRun } from "./pages/BenchmarkRun";
 import "./styles/index.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
@@ -22,6 +24,8 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <Route path="/config" element={<Config />} />
           <Route path="/runs/new" element={<NewRun />} />
           <Route path="/runs/:runId" element={<RunDetail />} />
+          <Route path="/benchmark" element={<Benchmark />} />
+          <Route path="/benchmark/run" element={<BenchmarkRun />} />
           <Route path="/health" element={<Health />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>

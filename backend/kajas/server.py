@@ -40,6 +40,11 @@ from .auth import (
     require_user,
     verify_passphrase,
 )
+from .benchmarks import (
+    BenchmarkInput,
+    DEFAULT_BENCHMARK_STORE,
+    start_benchmark_task,
+)
 from .config import (
     AuthConfig,
     GlobalConfig,
@@ -87,6 +92,10 @@ async def _lifespan(app: FastAPI):
             DEFAULT_RUN_STORE.mark_interrupted_on_startup(Path(project.path))
         except Exception:  # noqa: BLE001
             log.exception("interrupted sweep failed for %s", project.path)
+    try:
+        DEFAULT_BENCHMARK_STORE.mark_running_failed_on_startup()
+    except Exception:  # noqa: BLE001
+        log.exception("benchmark startup sweep failed")
     if not hasattr(app.state, "orchestrator"):
         app.state.orchestrator = ORCHESTRATOR
     yield
@@ -505,6 +514,44 @@ def _wire_routes(app: FastAPI) -> None:
     async def tool_smoke(_: SessionUser = Depends(require_user)) -> dict[str, Any]:
         return summarize(run_tool_smoke())
 
+    # ----- Benchmarks -------------------------------------------------
+
+    @app.get("/api/benchmarks")
+    async def benchmarks(_: SessionUser = Depends(require_user)) -> list[dict[str, Any]]:
+        return [
+            _benchmark_summary(run)
+            for run in DEFAULT_BENCHMARK_STORE.list()
+        ]
+
+    @app.post("/api/benchmarks", status_code=201)
+    async def create_benchmark(
+        payload: BenchmarkInput, _: SessionUser = Depends(require_user)
+    ) -> dict[str, Any]:
+        run = DEFAULT_BENCHMARK_STORE.create(payload)
+        start_benchmark_task(run.id, payload)
+        return _benchmark_summary(run)
+
+    @app.get("/api/benchmarks/{run_id}")
+    async def get_benchmark(
+        run_id: str, _: SessionUser = Depends(require_user)
+    ) -> dict[str, Any]:
+        run = DEFAULT_BENCHMARK_STORE.read(run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="benchmark not found")
+        return run.model_dump(mode="json")
+
+    @app.delete("/api/benchmarks/{run_id}")
+    async def delete_benchmark(
+        run_id: str, _: SessionUser = Depends(require_user)
+    ) -> dict[str, Any]:
+        run = DEFAULT_BENCHMARK_STORE.read(run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="benchmark not found")
+        if run.status == "running":
+            raise HTTPException(status_code=409, detail="cannot delete a running benchmark")
+        DEFAULT_BENCHMARK_STORE.delete(run_id)
+        return {"ok": True}
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -668,6 +715,27 @@ def _run_summary(
         out["plan"] = plan
         out["approved_plan"] = approved_plan
     return out
+
+
+def _benchmark_summary(run: Any) -> dict[str, Any]:
+    return {
+        "id": run.id,
+        "status": run.status,
+        "created_at": run.created_at,
+        "updated_at": run.updated_at,
+        "base_url": run.base_url,
+        "model": run.model,
+        "configured_model": run.configured_model,
+        "context_window": run.context_window,
+        "effective_context_window": run.effective_context_window,
+        "coding_judge_tool": run.coding_judge_tool,
+        "coding_judge_model": run.coding_judge_model,
+        "scores": run.scores,
+        "total_score": run.total_score,
+        "usable": run.usable,
+        "summary": run.summary,
+        "error": run.error,
+    }
 
 
 # Static files mounted last so it doesn't shadow /api/*.
