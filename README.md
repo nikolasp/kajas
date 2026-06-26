@@ -1,27 +1,66 @@
 # Kajas
 
-Local-first harness for running agentic coding workflows from a Web UI.
-A user picks a project and a workflow, writes a task prompt, reviews
-the generated plan when configured to pause, then lets the configured
-agent profiles complete the implementation while Kajas records state,
-logs, approvals, and token usage in project-local files.
+> Local-first harness for running agentic coding workflows from a Web UI.
+
+Bundled desktop app: **v0.1.0** · Python backend `0.1.0` ·
+Frontend `0.1.0`
+
+Kajas runs on your own machine. Pick a project and a workflow, write
+a task prompt, review the generated plan when configured to pause, then
+let the configured agent profiles do the implementation while Kajas
+records state, logs, approvals, and token usage in project-local
+files. Everything stays on disk under `<repo>/.kajas/` — no cloud, no
+telemetry.
 
 See [`docs/kajas-v1-design.md`](docs/kajas-v1-design.md) for the full
 V1 design.
 
+## Screenshots
+
+The same UI runs in the browser (`kajas serve`) and inside the bundled
+desktop app.
+
+| | |
+|:---:|:---:|
+| [![Dashboard](docs/screenshots/dashboard.png)](docs/screenshots/dashboard.png) | [![New Run](docs/screenshots/new-run.png)](docs/screenshots/new-run.png) |
+| **Dashboard** — recent runs across all registered projects, token usage at a glance. | **New Run** — pick project + workflow, write a prompt, see the effective merged config. |
+| [![Run Detail](docs/screenshots/run-detail.png)](docs/screenshots/run-detail.png) | [![Config](docs/screenshots/config.png)](docs/screenshots/config.png) |
+| **Run Detail** — live timeline of normalized events, tool calls, usage, and the original prompt. | **Config** — read-only merged view; edits go to the global or project YAML. |
+
+### Benchmark
+
+Score local OpenAI-compatible models (llama.cpp, Ollama, LM Studio, …) across tool calling, context retrieval, coding, and latency, then compare saved runs.
+
+| | |
+|:---:|:---:|
+| [![Benchmark](docs/screenshots/benchmark.png)](docs/screenshots/benchmark.png) | [![Run Benchmark](docs/screenshots/benchmark-run.png)](docs/screenshots/benchmark-run.png) |
+| **Benchmark** — compare saved runs by score, runtime, model, and context size. | **Run Benchmark** — launch a model eval; scoreboard, per-test results, and history. |
+
+<details>
+<summary>More views</summary>
+
+| | |
+|:---:|:---:|
+| [![Projects](docs/screenshots/projects.png)](docs/screenshots/projects.png) | [![Health](docs/screenshots/health.png)](docs/screenshots/health.png) |
+| **Projects** — register repos so Kajas can run workflows against them. | **Health** — backend self-checks and opt-in tool smoke tests. |
+</details>
+
 ## Stack
 
 - **Backend**: Python 3.11+ / FastAPI / uvicorn.
-- **Frontend**: React 18 / Vite / Tailwind CSS / TypeScript.
-- **Adapters**: Codex CLI, Pi CLI, plus a built-in `fake` adapter
-  for tests and demos.
+- **Frontend**: React 18 / Vite / Tailwind CSS / TypeScript, served
+  through the FastAPI process in production.
+- **Desktop**: Tauri v2 shell that launches the Python backend as a
+  sidecar and opens a native webview on the served UI.
+- **Adapters**: Codex CLI, Pi CLI, plus a built-in `fake` adapter for
+  tests and demos.
 - **Auth**: Argon2id passphrase + signed session cookie (HttpOnly,
   SameSite=Lax).
 - **State**: global YAML config at `~/.config/kajas/config.yaml`,
-  per-project config at `<repo>/.kajas/config.yaml`. Per-run
-  artifacts under `<repo>/.kajas/runs/<id>/`.
+  per-project config at `<repo>/.kajas/config.yaml`. Per-run artifacts
+  under `<repo>/.kajas/runs/<id>/`.
 
-## Quick Start
+## Quick Start (Web UI)
 
 ```bash
 # 1. Install backend deps and the kajas package
@@ -83,16 +122,41 @@ cd frontend && npm run build && cd ..
 kajas serve --frontend-dir frontend/dist
 ```
 
-## Desktop App
+## Desktop App (bundled, v0.1.0)
 
-Kajas has a Tauri v2 desktop wrapper under `frontend/src-tauri/`. The
-desktop shell starts the Python backend on localhost, serves the built
-Vite UI through that backend, and opens a native webview window against
-it. Desktop builds package the Python backend as a Tauri sidecar with
-PyInstaller, so the app does not need `python3 -m kajas.cli` at
-runtime.
+Kajas ships as a single native desktop app under
+`frontend/src-tauri/`. The Tauri v2 shell starts the Python backend on
+localhost, serves the built Vite UI through that backend, and opens a
+native webview window against it — so the desktop app and the Web UI
+are the same UI.
 
-Prerequisites:
+The bundled app version lives in three places that are kept in sync:
+
+| File | Field |
+| --- | --- |
+| `frontend/src-tauri/tauri.conf.json` | `version` |
+| `frontend/src-tauri/Cargo.toml` | `version` (the `kajas-desktop` crate) |
+| `frontend/package.json` | `version` (matches the UI build) |
+| `backend/pyproject.toml` | `version` (the Python backend/sidecar) |
+
+All read **0.1.0** for this release.
+
+### What gets bundled
+
+Desktop builds package the Python backend as a Tauri sidecar with
+PyInstaller, so the installed app does not need `python3 -m kajas.cli`
+or any Python environment at runtime. The sidecar binary lives under
+`frontend/src-tauri/binaries/`.
+
+`tauri.conf.json` sets `bundle.targets: "all"`, so per platform you get:
+
+| OS | Bundles |
+| --- | --- |
+| Linux | `.deb`, `.rpm`, and `.AppImage` |
+| macOS | `.app` and `.dmg` |
+| Windows | `.msi` and `.exe` (NSIS) |
+
+### Prerequisites
 
 - Rust/Cargo via <https://rustup.rs/>.
 - Python 3 plus `venv` support for the local PyInstaller packaging
@@ -100,27 +164,25 @@ Prerequisites:
 - The frontend dependencies installed with `npm install` in
   `frontend/`.
 
-Run it from the frontend package:
+### Run and build
+
+From the `frontend/` package:
 
 ```bash
-cd frontend
+# Run the desktop app against the current source (live backend sidecar build)
 npm run desktop:dev
-```
 
-Build the desktop binary:
-
-```bash
-cd frontend
+# Produce a local desktop binary without bundling installers
 npm run desktop:build
+
+# Produce all configured installers for this host (deb/rpm/AppImage on Linux, etc.)
+npm run desktop:bundle
+
+# Linux packages only (deb + rpm)
+npm run desktop:bundle:linux-packages
 ```
 
-Create Linux packages:
-
-```bash
-cd frontend
-npm run desktop:bundle:linux-packages  # deb + rpm
-npm run desktop:bundle                 # all configured bundles, including AppImage
-```
+### Runtime behavior
 
 By default the wrapper launches `python3 -m kajas.cli serve` with
 `PYTHONPATH` pointed at `../backend` only when running from source or
@@ -153,7 +215,7 @@ The full HTTP/SSE surface is mounted under `/api`:
 | `GET`  | `/api/auth/status` | is auth enabled? do we need to bootstrap? |
 | `GET`  | `/api/dashboard` | recent runs across all projects |
 | `GET`  | `/api/projects` | list registered projects |
-| `POST` | `/api/projects` | register a project and bootstrap `.kajas/` |
+| `POST`  | `/api/projects` | register a project and bootstrap `.kajas/` |
 | `DELETE` | `/api/projects/{name}` | unregister (keeps files) |
 | `GET`  | `/api/config/global` | read global config |
 | `PUT`  | `/api/config/global` | write global config |
@@ -179,6 +241,8 @@ backend/kajas/
   config.py       # YAML schemas, deep merge, validation
   projects.py     # project registry + bootstrap
   runs.py         # run orchestrator + state machine
+  run_store.py    # persistent run store
+  benchmarks.py   # benchmark tasks
   doctor.py       # basic + tool-smoke checks
   adapters/
     base.py       # Adapter / NormalizedEvent / HealthResult
@@ -189,8 +253,9 @@ frontend/src/
   App.tsx
   main.tsx
   lib/{api,types,format}.ts
-  pages/{Dashboard,Projects,Config,NewRun,RunDetail,Health,Login}.tsx
+  pages/{Dashboard,Projects,Config,NewRun,RunDetail,Health,Login,Benchmark,BenchmarkRun}.tsx
   components/StatusPill.tsx
+frontend/src-tauri/      # Tauri v2 desktop shell + sidecar packaging
 docs/kajas-v1-design.md
 tests/                # pytest suite (config, auth, runs, API)
 ```
@@ -206,7 +271,7 @@ does not invoke real Codex or Pi. The fake adapter supports hints
 embedded in the prompt, e.g. `<!-- kajas:fake mode=fail -->` to
 exercise the failure path.
 
-## Milestones
+## Status
 
 - **M1 (delivered)**: vertical skeleton with fake adapters, full
   config + auth + project model, dashboard / projects / config / new
@@ -218,3 +283,7 @@ exercise the failure path.
 - **M3 (partial)**: verification command execution and recording,
   plan amendment flow. Resume/rerun from plan or implementation is
   intentionally left as a follow-up.
+
+## License
+
+MIT — see the `license` field in [`backend/pyproject.toml`](backend/pyproject.toml).
