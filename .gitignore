@@ -11,10 +11,13 @@ venv/
 node_modules/
 dist/
 build/
+target/
+frontend/src-tauri/gen/
+frontend/.venv-backend-package/
+frontend/src-tauri/binaries/kajas-backend-*
 .cache/
 .kajas/
 .idea/
 .vscode/
 .DS_Store
 *.log
-

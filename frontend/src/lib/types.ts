@@ -97,3 +97,31 @@ export interface AuthStatus {
   enabled: boolean;
   bootstrap_required: boolean;
 }
+
+export type BenchmarkStatus = "running" | "completed" | "failed";
+
+export interface BenchmarkSummary {
+  id: string;
+  status: BenchmarkStatus;
+  created_at: string;
+  updated_at: string;
+  base_url: string;
+  model: string | null;
+  configured_model: string | null;
+  context_window: number | null;
+  effective_context_window: number | null;
+  coding_judge_tool: "codex" | "pi";
+  coding_judge_model: string;
+  scores: Record<string, number>;
+  total_score: number;
+  usable: boolean;
+  summary: string | null;
+  error: string | null;
+}
+
+export interface BenchmarkDetail extends BenchmarkSummary {
+  max_context_tokens: number | null;
+  tests: Array<Record<string, any>>;
+  raw: Array<Record<string, any>>;
+  latency_ms: number[];
+}

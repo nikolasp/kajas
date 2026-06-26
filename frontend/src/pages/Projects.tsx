@@ -31,6 +31,21 @@ export function Projects() {
     }
   }
 
+  async function choosePath() {
+    setError(null);
+    setBusy(true);
+    try {
+      const result = await api.selectProjectDirectory();
+      if (result.path) {
+        setPath(result.path);
+      }
+    } catch (err: any) {
+      setError(err.detail || "Folder picker is unavailable");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function remove(name: string) {
     if (!confirm(`Unregister project ${name}? Files on disk will NOT be deleted.`))
       return;
@@ -64,13 +79,23 @@ export function Projects() {
           </label>
           <label className="block">
             <span className="label">path</span>
-            <input
-              required
-              className="input mt-1"
-              value={path}
-              onChange={(e) => setPath(e.target.value)}
-              placeholder="/path/to/my-project"
-            />
+            <div className="mt-1 flex gap-2">
+              <input
+                required
+                className="input"
+                value={path}
+                onChange={(e) => setPath(e.target.value)}
+                placeholder="/path/to/my-project"
+              />
+              <button
+                type="button"
+                className="btn shrink-0"
+                disabled={busy}
+                onClick={choosePath}
+              >
+                Choose
+              </button>
+            </div>
           </label>
           <label className="flex items-center gap-2 sm:col-span-2">
             <input

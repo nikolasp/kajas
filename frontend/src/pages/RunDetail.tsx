@@ -12,6 +12,8 @@ export function RunDetail() {
   const [editPlan, setEditPlan] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [confirmCancelOpen, setConfirmCancelOpen] = useState(false);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [streamKey, setStreamKey] = useState(0);
   const eventsRef = useRef<HTMLDivElement | null>(null);
 
@@ -95,11 +97,12 @@ export function RunDetail() {
   }
 
   async function cancel() {
-    if (!confirm("Cancel this run? Subprocesses will be terminated.")) return;
     setBusy(true);
+    setError(null);
     try {
       const updated = await api.cancelRun(runId);
       setRun(updated);
+      setConfirmCancelOpen(false);
     } catch (err: any) {
       setError(err.detail || "Cancel failed");
     } finally {
@@ -122,9 +125,17 @@ export function RunDetail() {
   }
 
   async function remove() {
-    if (!confirm("Delete this run folder? This cannot be undone.")) return;
-    await api.deleteRun(runId);
-    navigate("/");
+    setBusy(true);
+    setError(null);
+    try {
+      await api.deleteRun(runId);
+      navigate("/");
+    } catch (err: any) {
+      setError(err.detail || "Delete failed");
+      setConfirmDeleteOpen(false);
+    } finally {
+      setBusy(false);
+    }
   }
 
   if (error && !run) {
@@ -152,8 +163,9 @@ export function RunDetail() {
   );
 
   return (
-    <div className="mx-auto grid max-w-7xl gap-6 p-8 lg:grid-cols-3">
-      <div className="space-y-4 lg:col-span-2">
+    <>
+      <div className="mx-auto grid max-w-7xl gap-6 p-8 lg:grid-cols-3">
+        <div className="space-y-4 lg:col-span-2">
         <header className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <div className="flex items-center gap-3">
@@ -169,7 +181,11 @@ export function RunDetail() {
           </div>
           <div className="flex flex-wrap gap-2">
             {inFlight && (
-              <button className="btn-danger" onClick={cancel} disabled={busy}>
+              <button
+                className="btn-danger"
+                onClick={() => setConfirmCancelOpen(true)}
+                disabled={busy}
+              >
                 Cancel
               </button>
             )}
@@ -179,7 +195,11 @@ export function RunDetail() {
               </button>
             )}
             {canDelete && (
-              <button className="btn-danger" onClick={remove}>
+              <button
+                className="btn-danger"
+                onClick={() => setConfirmDeleteOpen(true)}
+                disabled={busy}
+              >
                 Delete
               </button>
             )}
@@ -221,9 +241,9 @@ export function RunDetail() {
             )}
           </div>
         </section>
-      </div>
+        </div>
 
-      <aside className="space-y-4">
+        <aside className="space-y-4">
         <section className="panel">
           <div className="panel-header">
             <h2 className="text-sm font-semibold text-ink-200">Usage</h2>
@@ -265,8 +285,69 @@ export function RunDetail() {
             </pre>
           </section>
         )}
-      </aside>
-    </div>
+        </aside>
+      </div>
+
+      {confirmCancelOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink-900/80 p-4">
+          <div
+            className="w-full max-w-md rounded-lg border border-rose-500/30 bg-ink-900 p-5 shadow-2xl shadow-ink-900"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="cancel-run-title"
+          >
+            <h2 id="cancel-run-title" className="text-lg font-semibold text-ink-100">
+              Cancel run
+            </h2>
+            <p className="mt-2 text-sm text-ink-300">
+              Cancel this run? Any active subprocesses will be terminated.
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                className="btn"
+                onClick={() => setConfirmCancelOpen(false)}
+                disabled={busy}
+              >
+                Keep running
+              </button>
+              <button className="btn-danger" onClick={cancel} disabled={busy}>
+                Cancel run
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmDeleteOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink-900/80 p-4">
+          <div
+            className="w-full max-w-md rounded-lg border border-rose-500/30 bg-ink-900 p-5 shadow-2xl shadow-ink-900"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-run-title"
+          >
+            <h2 id="delete-run-title" className="text-lg font-semibold text-ink-100">
+              Delete run
+            </h2>
+            <p className="mt-2 text-sm text-ink-300">
+              Delete this run folder? This cannot be undone.
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                className="btn"
+                onClick={() => setConfirmDeleteOpen(false)}
+                disabled={busy}
+              >
+                Cancel
+              </button>
+              <button className="btn-danger" onClick={remove} disabled={busy}>
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 

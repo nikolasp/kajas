@@ -103,12 +103,12 @@ export function NewRun() {
             </select>
           </label>
           <label className="block sm:col-span-2">
-            <span className="label">title</span>
+            <span className="label">title (optional)</span>
             <input
               className="input mt-1"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="Add OAuth login"
+              placeholder="Custom title for this run"
             />
           </label>
           <label className="block sm:col-span-2">
@@ -163,7 +163,7 @@ export function NewRun() {
 
         <div className="flex items-center justify-end gap-2 border-t border-ink-700 px-5 py-3">
           {error && <span className="mr-auto text-sm text-rose-300">{error}</span>}
-          <button className="btn-primary" disabled={busy || !project}>
+          <button className="btn-primary" disabled={busy || !project || !prompt.trim()}>
             {busy ? "Starting…" : "Start Run"}
           </button>
         </div>
