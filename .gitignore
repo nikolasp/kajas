@@ -21,3 +21,20 @@ frontend/src-tauri/binaries/kajas-backend-*
 .vscode/
 .DS_Store
 *.log
+
+# Release artifacts live on GitHub Releases, not in git history.
+# Keep only the human-authored notes (releases/README.md) under version control.
+releases/*.dmg
+releases/*.dmg.sha256
+releases/*.app
+releases/*.app.sha256
+releases/*.exe
+releases/*.exe.sha256
+releases/*.msi
+releases/*.msi.sha256
+releases/*.deb
+releases/*.deb.sha256
+releases/*.rpm
+releases/*.rpm.sha256
+releases/*.AppImage
+releases/*.AppImage.sha256
