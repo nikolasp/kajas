@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from kajas import paths, projects
+from kajas import projects
 from kajas.config import GlobalConfig, write_global_config
 
 

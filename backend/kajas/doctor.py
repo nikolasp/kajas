@@ -8,7 +8,6 @@ warning) because they may invoke real CLI tools.
 from __future__ import annotations
 
 import shutil
-import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -20,7 +19,6 @@ from .config import (
     effective_policy,
     load_global_config,
     load_project_config,
-    merge_configs,
     validate_for_runtime,
 )
 

@@ -30,12 +30,15 @@ desktop app.
 
 ### Benchmark
 
-Score local OpenAI-compatible models (llama.cpp, Ollama, LM Studio, …) across tool calling, context retrieval, coding, and latency, then compare saved runs.
+Score local OpenAI-compatible models (llama.cpp, Ollama, LM Studio, …) across tool calling, context retrieval, coding, and latency, then compare saved runs. Scoring is out of 100: tool calling 50, context retrieval 25, coding 10, and latency/reliability 15. The **tool-calling** score includes a 17-scenario *agency* suite worth 35 points — a fixed Halcyon Systems sandbox grading tool selection, scheduling, multi-step incident chains, currency conversion, restraint, and focus against decoy tools.
 
-| | |
-|:---:|:---:|
-| [![Benchmark](docs/screenshots/benchmark.png)](docs/screenshots/benchmark.png) | [![Run Benchmark](docs/screenshots/benchmark-run.png)](docs/screenshots/benchmark-run.png) |
-| **Benchmark** — compare saved runs by score, runtime, model, and context size. | **Run Benchmark** — launch a model eval; scoreboard, per-test results, and history. |
+[![Benchmark](docs/screenshots/benchmark.png)](docs/screenshots/benchmark.png)
+
+**Benchmark** — compare saved runs by score, runtime, model, and context size.
+
+[![Run Benchmark](docs/screenshots/benchmark-run.png)](docs/screenshots/benchmark-run.png)
+
+**Run Benchmark** — start or inspect runs; score breakdown, per-test details (tool schema, multistep, JSON, and the `agency.*` scenarios), and history.
 
 <details>
 <summary>More views</summary>
@@ -282,6 +285,10 @@ The full HTTP/SSE surface is mounted under `/api`:
 | `POST` | `/api/runs/{id}/approve-plan` | approve (optionally edit) the plan |
 | `POST` | `/api/runs/{id}/cancel` | graceful cancel |
 | `DELETE` | `/api/runs/{id}` | delete run folder |
+| `GET`  | `/api/benchmarks` | list saved local model benchmark runs |
+| `POST` | `/api/benchmarks` | create + start a benchmark run |
+| `GET`  | `/api/benchmarks/{id}` | benchmark summary, tests, raw request/response data |
+| `DELETE` | `/api/benchmarks/{id}` | delete saved benchmark run |
 | `GET`  | `/api/health` | basic checks |
 | `POST` | `/api/health/tool-smoke` | opt-in tool smoke checks |
 
@@ -296,7 +303,8 @@ backend/kajas/
   projects.py     # project registry + bootstrap
   runs.py         # run orchestrator + state machine
   run_store.py    # persistent run store
-  benchmarks.py   # benchmark tasks
+  benchmarks.py   # benchmark runner (tooling, context, coding, latency)
+  agency_bench.py  # agency tool-use scenario suite (Halcyon Systems sandbox)
   doctor.py       # basic + tool-smoke checks
   adapters/
     base.py       # Adapter / NormalizedEvent / HealthResult

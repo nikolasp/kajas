@@ -13,6 +13,15 @@ import { Benchmark } from "./pages/Benchmark";
 import { BenchmarkRun } from "./pages/BenchmarkRun";
 import "./styles/index.css";
 
+try {
+  const theme = window.localStorage.getItem("kajas-theme");
+  if (theme === "light" || theme === "dark") {
+    document.documentElement.dataset.theme = theme;
+  }
+} catch {
+  // Ignore storage errors; CSS falls back to the system color scheme.
+}
+
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <HashRouter>

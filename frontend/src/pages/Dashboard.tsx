@@ -49,10 +49,10 @@ export function Dashboard() {
   };
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6 p-8">
+    <div className="w-full max-w-7xl space-y-6 p-8 lg:p-10">
       <header className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Dashboard</h1>
+          <h1 className="text-3xl font-semibold tracking-tight">Dashboard</h1>
           <p className="text-sm text-ink-400">
             Recent runs across all registered projects.
           </p>

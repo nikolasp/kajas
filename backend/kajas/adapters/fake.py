@@ -10,7 +10,6 @@ reports honest token usage.
 from __future__ import annotations
 
 import hashlib
-import random
 import time
 from collections.abc import Iterator
 from pathlib import Path

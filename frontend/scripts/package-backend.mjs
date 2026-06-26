@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { chmodSync, copyFileSync, existsSync, mkdirSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -14,6 +14,9 @@ const workDir = join(tauriDir, "target", "pyinstaller-work");
 const specDir = join(tauriDir, "target", "pyinstaller-spec");
 const binariesDir = join(tauriDir, "binaries");
 const rawBinaryName = process.platform === "win32" ? "kajas-backend.exe" : "kajas-backend";
+const targetTriple = output("rustc", ["--print", "host-tuple"]);
+const extension = process.platform === "win32" ? ".exe" : "";
+const target = join(binariesDir, `kajas-backend-${targetTriple}${extension}`);
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -94,10 +97,20 @@ if (depsReady.status !== 0) {
   ]);
 }
 
+mkdirSync(binariesDir, { recursive: true });
+
+// Force every desktop package/build command to bundle the backend source
+// from this checkout. PyInstaller and Tauri can otherwise leave a previous
+// sidecar in place after an interrupted build, which makes stale backend
+// behavior hard to spot in the packaged app.
+rmSync(distDir, { recursive: true, force: true });
+rmSync(workDir, { recursive: true, force: true });
+rmSync(specDir, { recursive: true, force: true });
+rmSync(target, { force: true });
+
 mkdirSync(distDir, { recursive: true });
 mkdirSync(workDir, { recursive: true });
 mkdirSync(specDir, { recursive: true });
-mkdirSync(binariesDir, { recursive: true });
 
 run(python, [
   "-m",
@@ -132,10 +145,7 @@ run(python, [
   entryPoint,
 ]);
 
-const targetTriple = output("rustc", ["--print", "host-tuple"]);
-const extension = process.platform === "win32" ? ".exe" : "";
 const source = join(distDir, rawBinaryName);
-const target = join(binariesDir, `kajas-backend-${targetTriple}${extension}`);
 
 copyFileSync(source, target);
 if (process.platform !== "win32") {

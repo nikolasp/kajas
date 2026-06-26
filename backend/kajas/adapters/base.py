@@ -13,10 +13,9 @@ internally (for the SSE stream) and for storing in ``events.ndjson``.
 
 from __future__ import annotations
 
-import enum
 import json
 import shutil
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Literal

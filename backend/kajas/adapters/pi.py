@@ -23,14 +23,10 @@ from __future__ import annotations
 
 import json
 import os
-import shlex
 import signal
 import subprocess
-import threading
-import time
 from collections.abc import Iterator
 from pathlib import Path
-from queue import Empty, Queue
 from typing import Any
 
 from .base import (

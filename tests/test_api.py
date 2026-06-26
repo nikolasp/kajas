@@ -7,8 +7,7 @@ orchestrator so they don't leak state between tests.
 
 from __future__ import annotations
 
-import os
-import tempfile
+import json
 from pathlib import Path
 
 import pytest
@@ -26,7 +25,7 @@ def kajas_env(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("KAJAS_DATA_DIR", str(data_dir))
     # Import inside the fixture so the env vars are visible.
     from kajas import config, paths
-    from kajas.config import GlobalConfig, AuthConfig
+    from kajas.config import GlobalConfig
 
     paths.global_config_path  # touch
     cfg = GlobalConfig.model_validate(
@@ -240,9 +239,9 @@ def test_create_and_list_benchmark(client, monkeypatch):
         run.status = "completed"
         run.model = payload.model or "local-model"
         run.scores = {
-            "tool_calling": 25,
+            "tool_calling": 50,
             "context_retrieval": 25,
-            "coding": 35,
+            "coding": 10,
             "latency_reliability": 15,
         }
         run.total_score = 100
@@ -285,3 +284,85 @@ def test_create_and_list_benchmark(client, monkeypatch):
 
     r = client.get(f"/api/benchmarks/{body['id']}")
     assert r.status_code == 404
+
+
+def test_legacy_benchmark_scores_are_normalized(client, kajas_env):
+    from kajas.agency_bench import SCENARIOS
+    from kajas.benchmarks import _distributed_scores
+
+    _, data_dir = kajas_env
+    bench_dir = data_dir / "benchmarks"
+    bench_dir.mkdir()
+    path = bench_dir / "bench-legacy.json"
+    legacy_agency_scores = _distributed_scores(10.0, len(SCENARIOS))
+    path.write_text(
+        json.dumps(
+            {
+                "id": "bench-legacy",
+                "status": "completed",
+                "created_at": "2026-06-26T15:00:00+00:00",
+                "updated_at": "2026-06-26T15:10:00+00:00",
+                "base_url": "http://localhost:11434/v1",
+                "model": "legacy-model",
+                "configured_model": "legacy-model",
+                "context_window": 32768,
+                "effective_context_window": 32768,
+                "max_context_tokens": 32768,
+                "coding_judge_tool": "codex",
+                "coding_judge_model": "gpt-5.5",
+                "scores": {
+                    "tool_calling": 22.65,
+                    "context_retrieval": 25.0,
+                    "coding": 34.0,
+                    "latency_reliability": 13.11,
+                },
+                "total_score": 94.76,
+                "usable": True,
+                "summary": "legacy scoring",
+                "error": None,
+                "tests": [
+                    {"name": "tool_schema", "ok": True, "score": 4.0, "detail": "ok"},
+                    {"name": "tool_multistep", "ok": True, "score": 6.0, "detail": "ok"},
+                    {"name": "json_only", "ok": True, "score": 5.0, "detail": "ok"},
+                    {
+                        "name": "agency.sel.mira_dept",
+                        "ok": True,
+                        "score": legacy_agency_scores[0],
+                        "detail": "ok",
+                    },
+                    {
+                        "name": "agency.sel.s03_dept",
+                        "ok": True,
+                        "score": legacy_agency_scores[1],
+                        "detail": "ok",
+                    },
+                    {"name": "agency.single.tomas_dept", "ok": False, "score": 0.0, "detail": "miss"},
+                    {"name": "context_25", "ok": True, "score": 6.25, "detail": "ok"},
+                    {"name": "context_50", "ok": True, "score": 6.25, "detail": "ok"},
+                    {"name": "context_75", "ok": True, "score": 6.25, "detail": "ok"},
+                    {"name": "context_100", "ok": True, "score": 6.25, "detail": "ok"},
+                    {"name": "coding_flappy_game", "ok": True, "score": 34.0, "detail": "ok"},
+                ],
+                "raw": [],
+                "latency_ms": [1000.0],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    r = client.get("/api/benchmarks")
+    assert r.status_code == 200
+    summary = r.json()[0]
+    assert summary["scores"]["tool_calling"] == 19.12
+    assert summary["scores"]["coding"] == 9.71
+    assert summary["total_score"] < 94.76
+
+    r = client.get("/api/benchmarks/bench-legacy")
+    assert r.status_code == 200
+    detail = r.json()
+    tests = {test["name"]: test for test in detail["tests"]}
+    assert tests["agency.sel.mira_dept"]["score"] == 2.06
+    assert tests["agency.sel.s03_dept"]["score"] == 2.06
+    assert tests["agency.single.tomas_dept"]["score"] == 0.0
+    assert tests["coding_flappy_game"]["score"] == 9.71
+    assert detail["scoring_version"] == "2026-06-26.tool50-context25-coding10-latency15"

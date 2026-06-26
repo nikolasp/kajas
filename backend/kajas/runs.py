@@ -29,13 +29,10 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
-import json
 import logging
 import os
 import re
-import subprocess
 import threading
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -189,12 +186,6 @@ def _write_run_md(record: RunRecord, body: str, path: Path) -> None:
     DEFAULT_RUN_STORE.write_run_md(record, body, path)
 
 
-def _read_run_md(path: Path) -> tuple[RunRecord, str]:
-    from .run_store import DEFAULT_RUN_STORE
-
-    return DEFAULT_RUN_STORE.read_run_md(path)
-
-
 # ---------------------------------------------------------------------------
 # Live in-memory state (one per orchestrator instance)
 # ---------------------------------------------------------------------------
@@ -209,13 +200,11 @@ class RunHandle:
         self._lock = threading.RLock()
         self.process: AdapterProcess | None = None
         self._listeners: list[asyncio.Queue[NormalizedEvent]] = []
-        self._final_event: NormalizedEvent | None = None
         self._cancelled = threading.Event()
         # ``_plan_approved`` is set by :meth:`Orchestrator.approve_plan`
         # to unblock the agent thread that is paused at the
         # ``awaiting_plan_approval`` gate.
         self._plan_approved = threading.Event()
-        self._approved_plan: str | None = None
 
     # ---- listeners -------------------------------------------------------
 
@@ -265,13 +254,6 @@ class RunHandle:
 # ---------------------------------------------------------------------------
 
 
-@dataclass
-class _AdapterRequest:
-    stage: Stage
-    agent_name: str
-    prompt_path: Path
-
-
 class Orchestrator:
     """Owns the in-memory run table and runs the agent loop in a thread."""
 
@@ -292,10 +274,6 @@ class Orchestrator:
     def get(self, run_id: str) -> RunHandle | None:
         with self._lock:
             return self._handles.get(run_id)
-
-    def all_active(self) -> list[RunHandle]:
-        with self._lock:
-            return list(self._handles.values())
 
     # ---- run creation ----------------------------------------------------
 
@@ -460,7 +438,6 @@ class Orchestrator:
                 DEFAULT_RUN_STORE.write_text(
                     handle.dir, DEFAULT_RUN_STORE.approved_plan_file, edited_plan
                 )
-                handle._approved_plan = edited_plan
             handle.record.plan_approved_at = dt.datetime.now().isoformat(timespec="seconds")
             handle.record.approvals.append(
                 {

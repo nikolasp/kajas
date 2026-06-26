@@ -17,32 +17,21 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
-import secrets
 import sys
 import time
 import webbrowser
 from pathlib import Path
 
 from . import paths
-from .adapters.base import load_registry
 from .auth import generate_session_secret, hash_passphrase
 from .config import (
-    AdapterSpec,
-    AgentProfile,
-    ApprovalGateSet,
     AuthConfig,
     GlobalConfig,
-    PolicySpec,
-    ServerConfig,
-    ToolConfig,
-    VerificationSpec,
-    WorkflowSpec,
     load_global_config,
     write_global_config,
 )
 from .doctor import run_basic_checks, run_tool_smoke
-from .projects import bootstrap_project, list_projects
+from .projects import bootstrap_project
 
 
 # ---------------------------------------------------------------------------

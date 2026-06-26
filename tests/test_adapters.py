@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from kajas.adapters import codex, pi
-from kajas.adapters.base import HealthResult, load_registry
+from kajas.adapters.base import load_registry
 
 
 def test_codex_translates_final_events() -> None:

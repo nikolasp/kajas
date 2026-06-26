@@ -24,11 +24,13 @@ from urllib.parse import quote
 import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
+from . import agency_bench
 from .paths import data_dir
 
 
 BenchmarkStatus = Literal["running", "completed", "failed"]
 CONTEXT_PROMPT_VERSION = "2026-06-26.strict-output-v2"
+SCORING_VERSION = "2026-06-26.tool50-context25-coding10-latency15"
 
 
 class BenchmarkInput(BaseModel):
@@ -56,6 +58,7 @@ class BenchmarkRun(BaseModel):
     max_context_tokens: int | None = None
     coding_judge_tool: Literal["codex", "pi"] = "codex"
     coding_judge_model: str = "gpt-5.5"
+    scoring_version: str | None = None
     scores: dict[str, float] = Field(default_factory=dict)
     total_score: float = 0.0
     usable: bool = False
@@ -87,6 +90,7 @@ class BenchmarkStore:
             max_context_tokens=payload.max_context_tokens,
             coding_judge_tool=payload.coding_judge_tool,
             coding_judge_model=payload.coding_judge_model,
+            scoring_version=SCORING_VERSION,
         )
         self.save(run)
         return run
@@ -101,7 +105,9 @@ class BenchmarkStore:
         path = self.path(run_id)
         if not path.exists():
             return None
-        return BenchmarkRun.model_validate_json(path.read_text(encoding="utf-8"))
+        return _normalize_legacy_scoring(
+            BenchmarkRun.model_validate_json(path.read_text(encoding="utf-8"))
+        )
 
     def delete(self, run_id: str) -> bool:
         path = self.path(run_id)
@@ -114,7 +120,11 @@ class BenchmarkStore:
         runs: list[BenchmarkRun] = []
         for path in sorted(self.root().glob("*.json")):
             try:
-                runs.append(BenchmarkRun.model_validate_json(path.read_text(encoding="utf-8")))
+                runs.append(
+                    _normalize_legacy_scoring(
+                        BenchmarkRun.model_validate_json(path.read_text(encoding="utf-8"))
+                    )
+                )
             except Exception:  # noqa: BLE001
                 continue
         runs.sort(key=lambda r: r.created_at, reverse=True)
@@ -281,14 +291,186 @@ async def _tooling_tests(client: OpenAICompatClient, run: BenchmarkRun, model: s
     score = 0.0
 
     schema_ok = await _schema_tool_test(client, run, model)
-    score += 8.0 if schema_ok else 0.0
+    score += 4.0 if schema_ok else 0.0
 
     multi_ok = await _multi_step_tool_test(client, run, model)
-    score += 12.0 if multi_ok else 0.0
+    score += 6.0 if multi_ok else 0.0
 
     json_ok = await _json_only_test(client, run, model)
     score += 5.0 if json_ok else 0.0
+
+    agency_score = await _agency_tests(client, run, model)
+    score += agency_score
     return score
+
+
+async def _agency_tests(client: OpenAICompatClient, run: BenchmarkRun, model: str) -> float:
+    """Run the agency scenario suite and score pass-rate within a 35pt budget.
+
+    Each scenario runs its own multi-round tool-calling loop against the
+    deterministic Halcyon Systems sandbox. Tool calls are dispatched in
+    process and their results fed back so models can chain steps.
+    """
+    scenarios = agency_bench.SCENARIOS
+    total = len(scenarios)
+    max_score = 35.0
+    awarded_scores = _distributed_scores(max_score, total)
+    earned_score = 0.0
+    for index, sc in enumerate(scenarios):
+        sc.reset()
+        tools = agency_bench.tool_schemas(include_kb_decoy=sc.include_kb_decoy, exclude=sc.exclude_tools)
+        if sc.only_tools:
+            tools = [t for t in tools if t["function"]["name"] in sc.only_tools]
+        trace = agency_bench.AgencyTrace()
+        messages: list[dict[str, Any]] = [
+            {"role": "system", "content": agency_bench.SYSTEM_PROMPT},
+            {"role": "user", "content": sc.prompt},
+        ]
+        try:
+            finished = False
+            last_assistant_message: dict[str, Any] | None = None
+            for _rnd in range(sc.max_rounds):
+                data = await client.chat(
+                    model=model,
+                    kind=sc.id,
+                    tools=tools,
+                    messages=messages,
+                    temperature=0,
+                    max_tokens=2048,
+                )
+                message = data["choices"][0]["message"]
+                messages.append(message)
+                last_assistant_message = message
+                calls = message.get("tool_calls") or []
+                if not calls:
+                    trace.final_text = message.get("content") or ""
+                    finished = True
+                    break
+                for call in calls:
+                    fn = call.get("function", {}).get("name")
+                    raw_args = call.get("function", {}).get("arguments") or "{}"
+                    try:
+                        args = json.loads(raw_args)
+                    except Exception:  # noqa: BLE001
+                        args = {}
+                    result = agency_bench.dispatch_tool(fn, args)
+                    trace.tool_calls.append({"name": fn, "args": args})
+                    trace.results.append(result)
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": call.get("id"),
+                            "content": json.dumps(result, default=str),
+                        }
+                    )
+            if not finished:
+                # Hit the round budget without a no-tool terminal turn; keep
+                # whatever final assistant content we last saw, if any.
+                trace.final_text = (last_assistant_message or {}).get("content", "")
+            ok, detail = sc.check(trace)
+        except Exception as exc:  # noqa: BLE001
+            ok, detail = False, str(exc)
+        if ok:
+            earned_score += awarded_scores[index]
+        run.tests.append({
+            "name": sc.id,
+            "ok": ok,
+            "score": awarded_scores[index] if ok else 0.0,
+            "detail": f"[{sc.area}] {detail}",
+        })
+    return round(earned_score, 2)
+
+
+def _distributed_scores(max_score: float, count: int) -> list[float]:
+    """Split a score budget into cent-precision rows that sum exactly."""
+    if count <= 0:
+        return []
+    total_cents = int(round(max_score * 100))
+    base, remainder = divmod(total_cents, count)
+    return [
+        (base + (1 if index < remainder else 0)) / 100
+        for index in range(count)
+    ]
+
+
+def _normalize_legacy_scoring(run: BenchmarkRun) -> BenchmarkRun:
+    """Project old stored benchmark runs onto the current score weights.
+
+    Benchmark JSON is persisted on disk, including per-test scores. Older
+    builds used a 10-point agency budget and a 35-point coding bucket, while
+    the current UI labels tool/coding as 50/10. Without this adapter, old runs
+    render as internally inconsistent rows such as agency=0.59 under a 50pt
+    tool-calling bucket.
+    """
+    if run.scoring_version == SCORING_VERSION:
+        return run
+    if not run.tests:
+        return run
+
+    tests_by_name = {str(test.get("name") or ""): test for test in run.tests}
+
+    tool_score = 0.0
+    for name, points in {
+        "tool_schema": 4.0,
+        "tool_multistep": 6.0,
+        "json_only": 5.0,
+    }.items():
+        test = tests_by_name.get(name)
+        if not test:
+            continue
+        score = points if test.get("ok") else 0.0
+        test["score"] = score
+        tool_score += score
+
+    agency_points = _distributed_scores(35.0, len(agency_bench.SCENARIOS))
+    for scenario, points in zip(agency_bench.SCENARIOS, agency_points):
+        test = tests_by_name.get(scenario.id)
+        if not test:
+            continue
+        score = points if test.get("ok") else 0.0
+        test["score"] = score
+        tool_score += score
+
+    context_score = 0.0
+    for test in run.tests:
+        if not str(test.get("name") or "").startswith("context_"):
+            continue
+        score = 6.25 if test.get("ok") else 0.0
+        test["score"] = score
+        context_score += score
+    context_score = min(25.0, context_score)
+
+    coding_score = 0.0
+    coding_test = tests_by_name.get("coding_flappy_game")
+    if coding_test:
+        old_score = _float_score(coding_test.get("score"))
+        if old_score > 10.0:
+            # Legacy coding was judged on a 35pt budget. Preserve relative
+            # quality while fitting the current 10pt bucket.
+            coding_score = round(min(10.0, old_score * (10.0 / 35.0)), 2)
+        else:
+            coding_score = round(min(10.0, old_score), 2)
+        if not coding_test.get("ok"):
+            coding_score = min(coding_score, 6.99)
+        coding_test["score"] = coding_score
+
+    run.scores = {
+        "tool_calling": round(tool_score, 2),
+        "context_retrieval": round(context_score, 2),
+        "coding": round(coding_score, 2),
+        "latency_reliability": round(_latency_score(run), 2),
+    }
+    run.total_score = round(sum(run.scores.values()), 2)
+    run.usable = run.total_score >= 70.0
+    run.scoring_version = SCORING_VERSION
+    return run
+
+
+def _float_score(value: Any) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 async def _schema_tool_test(client: OpenAICompatClient, run: BenchmarkRun, model: str) -> bool:
@@ -341,7 +523,7 @@ async def _schema_tool_test(client: OpenAICompatClient, run: BenchmarkRun, model
         detail = "tool call matched schema" if ok else f"unexpected tool args: {args}"
     except Exception as exc:  # noqa: BLE001
         detail = str(exc)
-    run.tests.append({"name": "tool_schema", "ok": ok, "score": 8.0 if ok else 0.0, "detail": detail})
+    run.tests.append({"name": "tool_schema", "ok": ok, "score": 4.0 if ok else 0.0, "detail": detail})
     return ok
 
 
@@ -406,8 +588,35 @@ async def _multi_step_tool_test(client: OpenAICompatClient, run: BenchmarkRun, m
             detail = "no final answer submitted"
     except Exception as exc:  # noqa: BLE001
         detail = str(exc)
-    run.tests.append({"name": "tool_multistep", "ok": ok, "score": 12.0 if ok else 0.0, "detail": detail})
+    run.tests.append({"name": "tool_multistep", "ok": ok, "score": 6.0 if ok else 0.0, "detail": detail})
     return ok
+
+
+def _strip_markdown_fence(content: str) -> tuple[str, bool]:
+    """Strip exactly one surrounding markdown code fence, if present.
+
+    Accepts ```` ```json ... ``` ```` and bare ```` ``` ... ``` ````. Only a
+    single fence wrapping the whole content is removed; JSON buried inside
+    prose is intentionally NOT extracted, so the json_only test still
+    measures "returned (only) JSON" rather than "contains JSON".
+
+    Returns the (possibly stripped) text and whether a fence was removed.
+    """
+    stripped = content.strip()
+    if not stripped.startswith("```"):
+        return content, False
+    # Drop the opening fence and an optional ``json`` language tag.
+    first_newline = stripped.find("\n")
+    if first_newline == -1:
+        return content, False
+    opener = stripped[:first_newline].strip()
+    if opener not in ("```", "```json", "```JSON"):
+        return content, False
+    body = stripped[first_newline + 1:].strip()
+    if not body.endswith("```"):
+        return content, False
+    body = body[:-3].strip()
+    return body, True
 
 
 async def _json_only_test(client: OpenAICompatClient, run: BenchmarkRun, model: str) -> bool:
@@ -431,13 +640,21 @@ async def _json_only_test(client: OpenAICompatClient, run: BenchmarkRun, model: 
             max_tokens=256,
         )
         content = data["choices"][0]["message"].get("content") or ""
-        parsed = json.loads(content)
+        raw, stripped = _strip_markdown_fence(content)
+        parsed = json.loads(raw)
         ok = (
             parsed.get("verdict") == "pass"
             and parsed.get("numbers") == [3, 5, 8]
             and parsed.get("checksum") == 16
         )
-        detail = "valid exact JSON" if ok else f"unexpected JSON: {parsed}"
+        if ok:
+            detail = "valid exact JSON"
+            if stripped:
+                detail += " (after stripping markdown fence)"
+        else:
+            detail = f"unexpected JSON: {parsed}"
+            if stripped:
+                detail += " (after stripping markdown fence)"
     except Exception as exc:  # noqa: BLE001
         detail = str(exc)
     run.tests.append({"name": "json_only", "ok": ok, "score": 5.0 if ok else 0.0, "detail": detail})
@@ -538,16 +755,16 @@ async def _coding_test(client: OpenAICompatClient, run: BenchmarkRun, model: str
             run=run,
         )
         parsed = _extract_json_object(judge["text"])
-        judge_score = max(0.0, min(35.0, float(parsed.get("score", 0))))
+        judge_score = max(0.0, min(10.0, float(parsed.get("score", 0))))
         if not generation_ok:
-            judge_score = min(judge_score, 12.0)
+            judge_score = min(judge_score, 3.5)
         detail = parsed.get("notes") or "judge returned a score"
     except Exception as exc:  # noqa: BLE001
         detail = str(exc)
     run.tests.append(
         {
             "name": "coding_flappy_game",
-            "ok": judge_score >= 24.5,
+            "ok": judge_score >= 7.0,
             "score": round(judge_score, 2),
             "detail": detail,
             "artifact": artifact,
@@ -670,7 +887,7 @@ def _coding_judge_prompt(artifact: str) -> str:
         "You are an external benchmark judge. Evaluate the submitted single-file browser game.\n"
         "Return only valid JSON with this shape:\n"
         '{"score": number, "notes": string}\n\n'
-        "Score must be from 0 to 35. Award points for:\n"
+        "Score must be from 0 to 10. Award points for:\n"
         "- completeness as a playable Flappy Bird style game\n"
         "- runnable single-file HTML structure\n"
         "- keyboard controls\n"
@@ -679,7 +896,7 @@ def _coding_judge_prompt(artifact: str) -> str:
         "- scoring\n"
         "- restart after game over\n"
         "- code clarity and maintainability\n\n"
-        "Do not reward prose-only answers. If the artifact is not runnable code, score it below 8.\n\n"
+        "Do not reward prose-only answers. If the artifact is not runnable code, score it below 3.\n\n"
         "SUBMITTED ARTIFACT START\n"
         f"{artifact[:50000]}\n"
         "SUBMITTED ARTIFACT END\n"

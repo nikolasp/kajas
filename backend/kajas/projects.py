@@ -12,7 +12,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .config import (
-    GlobalConfig,
     ProjectConfig,
     add_project,
     find_project,
@@ -20,7 +19,6 @@ from .config import (
     load_project_config,
     remove_project,
     write_global_config,
-    write_project_config,
 )
 
 

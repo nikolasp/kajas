@@ -5,18 +5,8 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-import pytest
-
-from kajas.config import (
-    AdapterSpec,
-    AgentProfile,
-    ApprovalGateSet,
-    GlobalConfig,
-    PolicySpec,
-    WorkflowSpec,
-    VerificationSpec,
-)
-from kajas.runs import Orchestrator, RunRecord, make_run_id, run_dir
+from kajas.config import GlobalConfig
+from kajas.runs import Orchestrator, make_run_id, run_dir
 
 
 def _build_global_config() -> GlobalConfig:

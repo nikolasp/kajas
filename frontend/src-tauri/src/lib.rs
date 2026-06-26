@@ -61,6 +61,16 @@ pub fn run() {
                 .and_then(|value| value.parse::<u16>().ok())
                 .unwrap_or(8765);
 
+            if backend_is_ready(&host, port) && !should_reuse_existing_backend() {
+                return Err(io::Error::new(
+                    io::ErrorKind::AddrInUse,
+                    format!(
+                        "Kajas backend is already running on {host}:{port}. Stop that process, or set KAJAS_DESKTOP_REUSE_BACKEND=1 to reuse it."
+                    ),
+                )
+                .into());
+            }
+
             if !backend_is_ready(&host, port) {
                 let backend = start_backend(app, &host, port)?;
                 app.manage(backend);
@@ -189,6 +199,16 @@ fn backend_command() -> Command {
     let mut command = Command::new(python);
     command.arg("-m").arg("kajas.cli");
     command
+}
+
+fn should_reuse_existing_backend() -> bool {
+    if !cfg!(debug_assertions) {
+        return true;
+    }
+    matches!(
+        env::var("KAJAS_DESKTOP_REUSE_BACKEND").ok().as_deref(),
+        Some("1") | Some("true") | Some("TRUE") | Some("yes") | Some("YES")
+    )
 }
 
 fn frontend_url(host: &str, port: u16) -> String {

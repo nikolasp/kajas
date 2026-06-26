@@ -5,9 +5,9 @@ import type { BenchmarkDetail, BenchmarkSummary } from "../lib/types";
 import { timeAgo } from "../lib/format";
 
 const WEIGHTS = [
-  ["tool_calling", "Tool calling", 25],
+  ["tool_calling", "Tool calling", 50],
   ["context_retrieval", "Context retrieval", 25],
-  ["coding", "Coding", 35],
+  ["coding", "Coding", 10],
   ["latency_reliability", "Latency", 15],
 ] as const;
 
@@ -25,6 +25,7 @@ export function BenchmarkRun() {
   const [judgeModel, setJudgeModel] = useState("gpt-5.5");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [newRunOpen, setNewRunOpen] = useState(false);
 
   const selected = useMemo(
     () => runs.find((run) => run.id === selectedId) || runs[0] || null,
@@ -86,6 +87,7 @@ export function BenchmarkRun() {
       });
       setSelectedId(run.id);
       await reload();
+      setNewRunOpen(false);
     } catch (e: any) {
       setError(e.detail || "Failed to start benchmark");
     } finally {
@@ -101,6 +103,7 @@ export function BenchmarkRun() {
     setMaxContext(String(run.effective_context_window || 32768));
     setJudgeTool(run.coding_judge_tool || "codex");
     setJudgeModel(run.coding_judge_model || "gpt-5.5");
+    setNewRunOpen(true);
   }
 
   return (
@@ -113,6 +116,9 @@ export function BenchmarkRun() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <button className="btn-primary" onClick={() => setNewRunOpen(true)}>
+            New run
+          </button>
           <Link to="/benchmark" className="btn">
             Comparison
           </Link>
@@ -128,90 +134,7 @@ export function BenchmarkRun() {
         </div>
       )}
 
-      <div className="grid gap-6 xl:grid-cols-[24rem_minmax(0,1fr)]">
-        <section className="panel">
-          <div className="panel-header">
-            <h2 className="text-sm font-semibold text-ink-200">New run</h2>
-            <span className="badge">70 usable</span>
-          </div>
-          <form className="panel-body space-y-4" onSubmit={submit}>
-            <label className="block space-y-1">
-              <span className="label">Base API URL</span>
-              <input
-                className="input"
-                value={baseUrl}
-                onChange={(e) => setBaseUrl(e.target.value)}
-                placeholder="http://localhost:11434/v1"
-                required
-              />
-            </label>
-            <label className="block space-y-1">
-              <span className="label">API key</span>
-              <input
-                className="input"
-                type="password"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder="Optional"
-              />
-            </label>
-            <label className="block space-y-1">
-              <span className="label">Model override</span>
-              <input
-                className="input"
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                placeholder="First /models entry"
-              />
-            </label>
-            <label className="block space-y-1">
-              <span className="label">Max context tokens</span>
-              <input
-                className="input"
-                type="number"
-                min={1024}
-                max={262144}
-                value={maxContext}
-                onChange={(e) => setMaxContext(e.target.value)}
-              />
-            </label>
-            <div className="grid gap-3 sm:grid-cols-[8rem_minmax(0,1fr)]">
-              <label className="block space-y-1">
-                <span className="label">Judge</span>
-                <select
-                  className="input"
-                  value={judgeTool}
-                  onChange={(e) => setJudgeTool(e.target.value as "codex" | "pi")}
-                >
-                  <option value="codex">Codex</option>
-                  <option value="pi">Pi</option>
-                </select>
-              </label>
-              <label className="block space-y-1">
-                <span className="label">Judge model</span>
-                <input
-                  className="input"
-                  value={judgeModel}
-                  onChange={(e) => setJudgeModel(e.target.value)}
-                  placeholder="gpt-5.5"
-                />
-              </label>
-            </div>
-            <label className="block space-y-1">
-              <span className="label">Custom headers</span>
-              <textarea
-                className="input min-h-24 font-mono"
-                value={headersText}
-                onChange={(e) => setHeadersText(e.target.value)}
-                placeholder={"X-Header: value\nX-Another: value"}
-              />
-            </label>
-            <button className="btn-primary w-full justify-center" disabled={submitting}>
-              {submitting ? "Starting..." : "Run benchmark"}
-            </button>
-          </form>
-        </section>
-
+      <div className="space-y-6">
         <section className="space-y-6">
           <ScoreBoard run={detail || selected} />
 
@@ -226,16 +149,7 @@ export function BenchmarkRun() {
               ) : (
                 <div className="divide-y divide-ink-800">
                   {detail.tests.map((test) => (
-                    <div key={test.name} className="grid gap-3 px-5 py-3 text-sm md:grid-cols-[1fr_5rem]">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className={`status-dot ${test.ok ? "completed" : "failed"}`} />
-                          <span className="font-mono text-ink-100">{test.name}</span>
-                        </div>
-                        <p className="mt-1 break-words text-xs text-ink-400">{String(test.detail || "")}</p>
-                      </div>
-                      <div className="text-right font-mono text-ink-200">{Number(test.score || 0).toFixed(2)}</div>
-                    </div>
+                    <TestRow key={test.name} test={test} raw={detail.raw} />
                   ))}
                 </div>
               )}
@@ -303,6 +217,224 @@ export function BenchmarkRun() {
           )}
         </section>
       </div>
+
+      {newRunOpen && (
+        <NewRunModal
+          baseUrl={baseUrl}
+          apiKey={apiKey}
+          model={model}
+          headersText={headersText}
+          maxContext={maxContext}
+          judgeTool={judgeTool}
+          judgeModel={judgeModel}
+          submitting={submitting}
+          onClose={() => setNewRunOpen(false)}
+          onSubmit={submit}
+          onBaseUrlChange={setBaseUrl}
+          onApiKeyChange={setApiKey}
+          onModelChange={setModel}
+          onHeadersTextChange={setHeadersText}
+          onMaxContextChange={setMaxContext}
+          onJudgeToolChange={setJudgeTool}
+          onJudgeModelChange={setJudgeModel}
+        />
+      )}
+    </div>
+  );
+}
+
+function NewRunModal({
+  baseUrl,
+  apiKey,
+  model,
+  headersText,
+  maxContext,
+  judgeTool,
+  judgeModel,
+  submitting,
+  onClose,
+  onSubmit,
+  onBaseUrlChange,
+  onApiKeyChange,
+  onModelChange,
+  onHeadersTextChange,
+  onMaxContextChange,
+  onJudgeToolChange,
+  onJudgeModelChange,
+}: {
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  headersText: string;
+  maxContext: string;
+  judgeTool: "codex" | "pi";
+  judgeModel: string;
+  submitting: boolean;
+  onClose: () => void;
+  onSubmit: (e: FormEvent) => void;
+  onBaseUrlChange: (value: string) => void;
+  onApiKeyChange: (value: string) => void;
+  onModelChange: (value: string) => void;
+  onHeadersTextChange: (value: string) => void;
+  onMaxContextChange: (value: string) => void;
+  onJudgeToolChange: (value: "codex" | "pi") => void;
+  onJudgeModelChange: (value: string) => void;
+}) {
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape" && !submitting) onClose();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose, submitting]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-ink-900/80 px-4 py-8 backdrop-blur-sm">
+      <button
+        className="absolute inset-0 h-full w-full cursor-default"
+        aria-label="Close new run dialog"
+        onClick={() => {
+          if (!submitting) onClose();
+        }}
+      />
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="new-run-title"
+        className="panel relative w-full max-w-2xl overflow-hidden"
+      >
+        <div className="panel-header">
+          <div>
+            <h2 id="new-run-title" className="text-sm font-semibold text-ink-100">New benchmark run</h2>
+            <p className="mt-1 text-xs text-ink-400">Configure the endpoint, model, and judge for the next run.</p>
+          </div>
+          <button className="btn" onClick={onClose} disabled={submitting}>
+            Close
+          </button>
+        </div>
+        <form className="panel-body space-y-4" onSubmit={onSubmit}>
+          <label className="block space-y-1">
+            <span className="label">Base API URL</span>
+            <input
+              className="input"
+              value={baseUrl}
+              onChange={(e) => onBaseUrlChange(e.target.value)}
+              placeholder="http://localhost:11434/v1"
+              required
+            />
+          </label>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="block space-y-1">
+              <span className="label">API key</span>
+              <input
+                className="input"
+                type="password"
+                value={apiKey}
+                onChange={(e) => onApiKeyChange(e.target.value)}
+                placeholder="Optional"
+              />
+            </label>
+            <label className="block space-y-1">
+              <span className="label">Model override</span>
+              <input
+                className="input"
+                value={model}
+                onChange={(e) => onModelChange(e.target.value)}
+                placeholder="First /models entry"
+              />
+            </label>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_8rem_minmax(0,1fr)]">
+            <label className="block space-y-1">
+              <span className="label">Max context tokens</span>
+              <input
+                className="input"
+                type="number"
+                min={1024}
+                max={262144}
+                value={maxContext}
+                onChange={(e) => onMaxContextChange(e.target.value)}
+              />
+            </label>
+            <label className="block space-y-1">
+              <span className="label">Judge</span>
+              <select
+                className="input"
+                value={judgeTool}
+                onChange={(e) => onJudgeToolChange(e.target.value as "codex" | "pi")}
+              >
+                <option value="codex">Codex</option>
+                <option value="pi">Pi</option>
+              </select>
+            </label>
+            <label className="block space-y-1">
+              <span className="label">Judge model</span>
+              <input
+                className="input"
+                value={judgeModel}
+                onChange={(e) => onJudgeModelChange(e.target.value)}
+                placeholder="gpt-5.5"
+              />
+            </label>
+          </div>
+          <label className="block space-y-1">
+            <span className="label">Custom headers</span>
+            <textarea
+              className="input min-h-24 font-mono"
+              value={headersText}
+              onChange={(e) => onHeadersTextChange(e.target.value)}
+              placeholder={"X-Header: value\nX-Another: value"}
+            />
+          </label>
+          <div className="flex justify-end gap-2">
+            <button type="button" className="btn" onClick={onClose} disabled={submitting}>
+              Cancel
+            </button>
+            <button className="btn-primary" disabled={submitting}>
+              {submitting ? "Starting..." : "Run benchmark"}
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
+function TestRow({ test, raw }: { test: Record<string, any>; raw: Array<Record<string, any>> }) {
+  const artifact = testArtifact(test, raw);
+  return (
+    <details className="group px-5 py-3 text-sm">
+      <summary className="grid cursor-pointer list-none gap-3 md:grid-cols-[1fr_5rem]">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className={`status-dot ${test.ok ? "completed" : "failed"}`} />
+            <span className="min-w-0 truncate font-mono text-ink-100">{String(test.name || "unnamed_test")}</span>
+          </div>
+          <p className="mt-1 break-words text-xs text-ink-400">{String(test.detail || "")}</p>
+        </div>
+        <div className="flex items-center justify-between gap-3 md:justify-end">
+          <span className="text-xs text-ink-500 group-open:text-accent-400">details</span>
+          <span className="font-mono text-ink-200">{Number(test.score || 0).toFixed(2)}</span>
+        </div>
+      </summary>
+      <div className="mt-4 grid gap-3 xl:grid-cols-3">
+        <TestArtifact title="Prompt" value={artifact.prompt} />
+        <TestArtifact title="Result" value={artifact.result} />
+        <TestArtifact title="Expectation" value={artifact.expectation} />
+      </div>
+    </details>
+  );
+}
+
+function TestArtifact({ title, value }: { title: string; value: string | null }) {
+  return (
+    <div className="rounded-lg border border-ink-700 bg-ink-900/50 p-3">
+      <div className="label">{title}</div>
+      {value ? (
+        <pre className="event-json mt-2 max-h-72 overflow-auto">{value}</pre>
+      ) : (
+        <p className="mt-2 text-xs text-ink-500">Not stored for this check.</p>
+      )}
     </div>
   );
 }
@@ -388,6 +520,202 @@ function parseHeaders(text: string): Record<string, string> {
     headers[trimmed.slice(0, idx).trim()] = trimmed.slice(idx + 1).trim();
   }
   return headers;
+}
+
+function testArtifact(test: Record<string, any>, raw: Array<Record<string, any>>) {
+  const rawMatches = rawEntriesForTest(test, raw);
+  const rawMatch = rawMatches[0];
+  const source = {
+    ...(rawMatch || {}),
+    ...test,
+    extra: {
+      ...((rawMatch?.extra || {}) as Record<string, any>),
+      ...((test.extra || {}) as Record<string, any>),
+    },
+    metadata: {
+      ...((rawMatch?.metadata || {}) as Record<string, any>),
+      ...((test.metadata || {}) as Record<string, any>),
+    },
+  };
+
+  return {
+    prompt: pickString(source, [
+      "prompt",
+      "actual_prompt",
+      "input_prompt",
+      "request.prompt",
+      "request.input",
+      "request.messages",
+      "messages",
+      "extra.prompt",
+      "extra.actual_prompt",
+      "extra.request.prompt",
+      "extra.request.messages",
+      "metadata.prompt",
+    ]) || promptFromRaw(rawMatches),
+    result: pickString(source, [
+      "result",
+      "actual",
+      "output",
+      "response",
+      "response_text",
+      "completion",
+      "content",
+      "raw_response",
+      "extra.result",
+      "extra.actual",
+      "extra.output",
+      "extra.response",
+      "extra.response_text",
+      "metadata.result",
+    ]) || resultFromRaw(rawMatches),
+    expectation: pickString(source, [
+      "expectation",
+      "expected",
+      "expected_result",
+      "assertion",
+      "assertions",
+      "criteria",
+      "rubric",
+      "extra.expectation",
+      "extra.expected",
+      "extra.expected_result",
+      "extra.assertion",
+      "extra.assertions",
+      "extra.criteria",
+      "extra.rubric",
+      "metadata.expectation",
+    ]) || expectationForTest(test),
+  };
+}
+
+function rawEntriesForTest(test: Record<string, any>, raw: Array<Record<string, any>>) {
+  const testName = String(test.name || "");
+  if (!testName) return [];
+  return raw.filter((entry) => {
+    const kind = String(entry.kind || "");
+    const names = [
+      kind,
+      entry.name,
+      entry.test,
+      entry.test_name,
+      entry.check,
+      entry.check_name,
+      entry.id,
+    ].filter(Boolean).map(String);
+    if (names.some((name) => name === testName || name.startsWith(`${testName}_`))) {
+      return true;
+    }
+    if (testName === "tool_multistep" && kind.startsWith("tool_multistep_")) {
+      return true;
+    }
+    if (testName === "coding_flappy_game") {
+      return kind === "coding_generation" || kind === "coding_judge_external";
+    }
+    return false;
+  });
+}
+
+function promptFromRaw(entries: Array<Record<string, any>>) {
+  const request = entries.find((entry) => Array.isArray(entry.request?.messages))?.request;
+  if (!request) return null;
+  return renderMessages(request.messages);
+}
+
+function resultFromRaw(entries: Array<Record<string, any>>) {
+  const parts = entries
+    .map((entry, index) => {
+      const label = entries.length > 1 ? `${entry.kind || `step ${index + 1}`}\n` : "";
+      const response = entry.response;
+      const choice = Array.isArray(response?.choices) ? response.choices[0] : null;
+      const message = choice?.message;
+      if (message) {
+        return label + renderAssistantMessage(message, choice?.finish_reason);
+      }
+      const text = response?.text || response?.stdout || response?.content;
+      if (text) return label + renderValue(text);
+      return label + renderValue(response);
+    })
+    .filter(Boolean);
+  return parts.length ? parts.join("\n\n---\n\n") : null;
+}
+
+function renderMessages(messages: any[]) {
+  const rendered = messages
+    .map((message) => {
+      const role = String(message?.role || "message").toUpperCase();
+      const content = renderValue(message?.content);
+      const calls = renderToolCalls(message?.tool_calls);
+      return [role, content, calls].filter(Boolean).join("\n");
+    })
+    .filter(Boolean);
+  return rendered.length ? rendered.join("\n\n") : null;
+}
+
+function renderAssistantMessage(message: Record<string, any>, finishReason?: string) {
+  const parts = [
+    renderValue(message.content),
+    renderToolCalls(message.tool_calls),
+    finishReason ? `finish_reason: ${finishReason}` : null,
+  ].filter(Boolean);
+  return parts.length ? parts.join("\n\n") : null;
+}
+
+function renderToolCalls(calls: any) {
+  if (!Array.isArray(calls) || calls.length === 0) return null;
+  return calls
+    .map((call, index) => {
+      const fn = call?.function || {};
+      const name = fn.name || `tool_${index + 1}`;
+      const args = fn.arguments || {};
+      return `tool_call: ${name}\n${typeof args === "string" ? args : JSON.stringify(args, null, 2)}`;
+    })
+    .join("\n\n");
+}
+
+function expectationForTest(test: Record<string, any>) {
+  const name = String(test.name || "");
+  const exact: Record<string, string> = {
+    tool_schema: "Call record_measurement with sample_id alpha-7, value 42.5, unit ms, and passed true.",
+    tool_multistep: "Use add and multiply tools to compute (17 + 25) * 3, then submit 126.",
+    json_only: "Return only valid JSON: verdict='pass', numbers=[3, 5, 8], checksum=16.",
+    coding_flappy_game: "Return a runnable single-file Flappy Bird style HTML game with controls, collision detection, scoring, and restart.",
+  };
+  if (exact[name]) return exact[name];
+  if (name.startsWith("context_")) {
+    return "Return only the hidden KJAS-NEEDLE token from the haystack, with no extra text.";
+  }
+  if (name.startsWith("agency.")) {
+    return `Satisfy the agency scenario checker. Current check detail: ${String(test.detail || "not available")}`;
+  }
+  return test.detail ? `Pass condition detail: ${String(test.detail)}` : null;
+}
+
+function pickString(source: Record<string, any>, paths: string[]) {
+  for (const path of paths) {
+    const value = getPath(source, path);
+    const rendered = renderValue(value);
+    if (rendered) return rendered;
+  }
+  return null;
+}
+
+function getPath(source: Record<string, any>, path: string) {
+  return path.split(".").reduce<any>((value, part) => {
+    if (value == null || typeof value !== "object") return undefined;
+    return value[part];
+  }, source);
+}
+
+function renderValue(value: any): string | null {
+  if (value == null || value === "") return null;
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
 }
 
 function scoreBadge(run: BenchmarkSummary | BenchmarkDetail) {

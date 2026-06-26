@@ -14,7 +14,7 @@ from dataclasses import dataclass
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerifyMismatchError
-from fastapi import Cookie, Depends, HTTPException, Request, status
+from fastapi import Cookie, HTTPException, Request, status
 from itsdangerous import BadSignature, SignatureExpired, TimestampSigner
 
 SESSION_COOKIE = "kajas_session"
