@@ -3,7 +3,8 @@
 > Local-first harness for running agentic coding workflows from a Web UI.
 
 Bundled desktop app: **v0.1.0** · Python backend `0.1.0` ·
-Frontend `0.1.0`
+Frontend `0.1.0` — prebuilt for macOS Apple Silicon:
+[`Kajas-0.1.0-macos-arm64.dmg`](https://github.com/nikolasp/kajas/releases/download/v0.1.0/Kajas-0.1.0-macos-arm64.dmg) (see [Desktop App](#desktop-app-bundled-v010) for the unsigned-install steps).
 
 Kajas runs on your own machine. Pick a project and a workflow, write
 a task prompt, review the generated plan when configured to pause, then
@@ -141,6 +142,43 @@ The bundled app version lives in three places that are kept in sync:
 
 All read **0.1.0** for this release.
 
+### Download
+
+A prebuilt macOS disk image is published on GitHub Releases for each
+version. The current release is **v0.1.0**:
+
+→ **[Kajas-0.1.0-macos-arm64.dmg](https://github.com/nikolasp/kajas/releases/download/v0.1.0/Kajas-0.1.0-macos-arm64.dmg)** (Apple Silicon, ~21 MB)
+
+| | |
+| --- | --- |
+| Target | macOS 11+ on Apple Silicon (arm64) |
+| SHA-256 | `d1011ef932b18f22100b2f84c221961375cc18fd2d9bf338e67231224a6605b0` |
+| Signing | ad-hoc signed — **not** notarized |
+
+The build is unsigned, so Gatekeeper will block a double-click open.
+There is no Intel (x86_64) prebuilt yet — see [Building from source](#build)
+below.
+
+**Installing on macOS (unsigned app):**
+
+1. Download the `.dmg` above and verify the checksum:
+   ```bash
+   shasum -a 256 Kajas-0.1.0-macos-arm64.dmg
+   # expect: d1011ef932b18f22100b2f84c221961375cc18fd2d9bf338e67231224a6605b0
+   ```
+2. Open the `.dmg`, drag **Kajas** into **Applications**.
+3. Clear the quarantine attribute **before** first launch (one-time):
+   ```bash
+   xattr -cr /Applications/Kajas.app
+   ```
+   …or right-click **Kajas.app** → **Open** → confirm **Open** at the
+   Gatekeeper prompt the first time.
+4. Launch Kajas. It starts the local Python backend and opens the webview.
+
+> ⚠️ Because the app is ad-hoc signed, any macOS user can run it, but
+> they must perform step 3 above. A notarized build requires an Apple
+> Developer ID; see `releases/README.md` for the notarization TODO.
+
 ### What gets bundled
 
 Desktop builds package the Python backend as a Tauri sidecar with
@@ -189,6 +227,22 @@ By default the wrapper launches `python3 -m kajas.cli serve` with
 when `KAJAS_BACKEND_CMD` is set. Packaged apps launch the bundled
 `kajas-backend` sidecar. Override `KAJAS_DESKTOP_PORT` if port `8765`
 is not available.
+
+<a id="build"></a>
+### Build from source
+
+To produce the same `.dmg` locally (e.g. for Intel Macs, or to inspect
+the build):
+
+```bash
+cd frontend
+npm install
+npm run tauri -- build --bundles dmg
+# -> frontend/src-tauri/target/release/bundle/dmg/Kajas_0.1.0_aarch64.dmg
+```
+
+Override `--target` for a different architecture if your toolchain
+supports it. See `releases/README.md` for the full publish recipe.
 
 ## CLI
 
