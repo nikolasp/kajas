@@ -6,6 +6,48 @@ plus their published checksums and the publish recipe.
 
 [releases]: https://github.com/nikolasp/kajas/releases
 
+## v0.1.1 — macOS (Apple Silicon)
+
+| File | Target | Size | SHA-256 |
+| --- | --- | --- | --- |
+| `Kajas-0.1.1-macos-arm64.dmg` | macOS 11+ on Apple Silicon (arm64) | record after build | record after build |
+
+Release notes:
+
+- Normalizes legacy benchmark runs so old `agency.*` rows are shown under
+  the current 50-point tool-calling score model.
+- Adds a desktop-dev guard against silently reusing a stale backend already
+  listening on port `8765`; set `KAJAS_DESKTOP_REUSE_BACKEND=1` to opt in.
+- Keeps the agency benchmark tool filtering aligned with scenario-specific
+  allowed tools.
+
+### How this artifact is produced
+
+```bash
+cd frontend
+npm run tauri -- build --bundles dmg
+# -> frontend/src-tauri/target/release/bundle/dmg/Kajas_0.1.1_aarch64.dmg
+cp ../frontend/src-tauri/target/release/bundle/dmg/Kajas_0.1.1_aarch64.dmg \
+   releases/Kajas-0.1.1-macos-arm64.dmg
+shasum -a 256 releases/Kajas-0.1.1-macos-arm64.dmg > \
+   releases/Kajas-0.1.1-macos-arm64.dmg.sha256
+```
+
+### Publishing (run once per release)
+
+```bash
+gh release create v0.1.1 \
+  releases/Kajas-0.1.1-macos-arm64.dmg \
+  --title "Kajas v0.1.1" \
+  --notes-file releases/README.md
+```
+
+After publishing, this link becomes live:
+
+```
+https://github.com/nikolasp/kajas/releases/download/v0.1.1/Kajas-0.1.1-macos-arm64.dmg
+```
+
 ## v0.1.0 — macOS (Apple Silicon)
 
 | File | Target | Size | SHA-256 |
@@ -52,7 +94,7 @@ https://github.com/nikolasp/kajas/releases/download/v0.1.0/Kajas-0.1.0-macos-arm
 
 ## Notarization TODO
 
-The v0.1.0 build is ad-hoc signed only, so macOS users must clear the
+The current build is ad-hoc signed only, so macOS users must clear the
 quarantine attribute (`xattr -cr /Applications/Kajas.app`) before first
 launch. To ship a build that opens with a normal double-click:
 
@@ -64,8 +106,8 @@ launch. To ship a build that opens with a normal double-click:
    ```
 3. Notarize and staple:
    ```bash
-   xcrun notarytool submit Kajas-0.1.0-macos-arm64.dmg \
+   xcrun notarytool submit Kajas-0.1.1-macos-arm64.dmg \
      --apple-id <apple-id> --team-id <team-id> --wait
-   xcrun stapler staple Kajas-0.1.0-macos-arm64.dmg
+   xcrun stapler staple Kajas-0.1.1-macos-arm64.dmg
    ```
 4. Re-record the SHA-256 and republish the release asset.

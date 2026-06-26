@@ -2,9 +2,9 @@
 
 > Local-first harness for running agentic coding workflows from a Web UI.
 
-Bundled desktop app: **v0.1.0** · Python backend `0.1.0` ·
-Frontend `0.1.0` — prebuilt for macOS Apple Silicon:
-[`Kajas-0.1.0-macos-arm64.dmg`](https://github.com/nikolasp/kajas/releases/download/v0.1.0/Kajas-0.1.0-macos-arm64.dmg) (see [Desktop App](#desktop-app-bundled-v010) for the unsigned-install steps).
+Bundled desktop app: **v0.1.1** · Python backend `0.1.1` ·
+Frontend `0.1.1` — prebuilt for macOS Apple Silicon:
+[`Kajas-0.1.1-macos-arm64.dmg`](https://github.com/nikolasp/kajas/releases/download/v0.1.1/Kajas-0.1.1-macos-arm64.dmg) (see [Desktop App](#desktop-app-bundled-v011) for the unsigned-install steps).
 
 Kajas runs on your own machine. Pick a project and a workflow, write
 a task prompt, review the generated plan when configured to pause, then
@@ -126,7 +126,7 @@ cd frontend && npm run build && cd ..
 kajas serve --frontend-dir frontend/dist
 ```
 
-## Desktop App (bundled, v0.1.0)
+## Desktop App (bundled, v0.1.1)
 
 Kajas ships as a single native desktop app under
 `frontend/src-tauri/`. The Tauri v2 shell starts the Python backend on
@@ -143,19 +143,19 @@ The bundled app version lives in three places that are kept in sync:
 | `frontend/package.json` | `version` (matches the UI build) |
 | `backend/pyproject.toml` | `version` (the Python backend/sidecar) |
 
-All read **0.1.0** for this release.
+All read **0.1.1** for this release.
 
 ### Download
 
 A prebuilt macOS disk image is published on GitHub Releases for each
-version. The current release is **v0.1.0**:
+version. The current release is **v0.1.1**:
 
-→ **[Kajas-0.1.0-macos-arm64.dmg](https://github.com/nikolasp/kajas/releases/download/v0.1.0/Kajas-0.1.0-macos-arm64.dmg)** (Apple Silicon, ~21 MB)
+→ **[Kajas-0.1.1-macos-arm64.dmg](https://github.com/nikolasp/kajas/releases/download/v0.1.1/Kajas-0.1.1-macos-arm64.dmg)** (Apple Silicon, size recorded on release)
 
 | | |
 | --- | --- |
 | Target | macOS 11+ on Apple Silicon (arm64) |
-| SHA-256 | `d1011ef932b18f22100b2f84c221961375cc18fd2d9bf338e67231224a6605b0` |
+| SHA-256 | recorded in [`releases/README.md`](releases/README.md) after the release asset is built |
 | Signing | ad-hoc signed — **not** notarized |
 
 The build is unsigned, so Gatekeeper will block a double-click open.
@@ -166,8 +166,8 @@ below.
 
 1. Download the `.dmg` above and verify the checksum:
    ```bash
-   shasum -a 256 Kajas-0.1.0-macos-arm64.dmg
-   # expect: d1011ef932b18f22100b2f84c221961375cc18fd2d9bf338e67231224a6605b0
+   shasum -a 256 Kajas-0.1.1-macos-arm64.dmg
+   # compare with the SHA-256 in releases/README.md for v0.1.1
    ```
 2. Open the `.dmg`, drag **Kajas** into **Applications**.
 3. Clear the quarantine attribute **before** first launch (one-time):
@@ -241,7 +241,7 @@ the build):
 cd frontend
 npm install
 npm run tauri -- build --bundles dmg
-# -> frontend/src-tauri/target/release/bundle/dmg/Kajas_0.1.0_aarch64.dmg
+# -> frontend/src-tauri/target/release/bundle/dmg/Kajas_0.1.1_aarch64.dmg
 ```
 
 Override `--target` for a different architecture if your toolchain
