@@ -480,6 +480,18 @@ class Orchestrator:
         if handle is None:
             return
         handle.request_cancel()
+        with handle._lock:
+            if handle.record.status in TERMINAL_STATUSES:
+                return
+            stage: Stage = (
+                "implementation"
+                if handle.record.status
+                in {"implementing", "verifying", "awaiting_final_acceptance"}
+                else "planning"
+            )
+            handle.record.status = "cancelled"
+            handle.record.touch()
+            _persist_and_emit_status(handle, stage)
 
     def delete(self, run_id: str) -> None:
         handle = self.get(run_id)
@@ -691,7 +703,7 @@ class Orchestrator:
             for ev in proc.events:
                 if handle.cancelled:
                     proc.cancel()
-                    break
+                    return False
                 _emit(handle, ev)
                 _record_usage(handle, ev)
                 if ev.type == "final" and ev.artifact == "plan.md":

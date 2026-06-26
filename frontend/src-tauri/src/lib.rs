@@ -61,14 +61,22 @@ pub fn run() {
                 .and_then(|value| value.parse::<u16>().ok())
                 .unwrap_or(8765);
 
-            if !port_is_open(&host, port) {
+            if !backend_is_ready(&host, port) {
                 let backend = start_backend(app, &host, port)?;
                 app.manage(backend);
                 wait_for_backend(&host, port, Duration::from_secs(20))?;
             }
 
-            let app_url = format!("http://{host}:{port}/");
-            let allowed_origin = format!("http://{host}:{port}");
+            if !backend_is_ready(&host, port) {
+                return Err(io::Error::new(
+                    io::ErrorKind::NotConnected,
+                    format!("Kajas backend is not responding on {host}:{port}"),
+                )
+                .into());
+            }
+
+            let app_url = frontend_url(&host, port);
+            let allowed_origin = url_origin(&app_url);
             tauri::WebviewWindowBuilder::new(
                 app,
                 "main",
@@ -183,6 +191,26 @@ fn backend_command() -> Command {
     command
 }
 
+fn frontend_url(host: &str, port: u16) -> String {
+    if let Ok(url) = env::var("KAJAS_FRONTEND_URL") {
+        return url;
+    }
+    if cfg!(debug_assertions) {
+        return "http://127.0.0.1:5173/".into();
+    }
+    format!("http://{host}:{port}/")
+}
+
+fn url_origin(url: &str) -> String {
+    let without_path = url
+        .split_once("://")
+        .and_then(|(scheme, rest)| {
+            let authority = rest.split('/').next()?;
+            Some(format!("{scheme}://{authority}"))
+        });
+    without_path.unwrap_or_else(|| url.trim_end_matches('/').to_string())
+}
+
 fn wait_for_backend(host: &str, port: u16, timeout: Duration) -> SetupResult<()> {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
@@ -197,6 +225,21 @@ fn wait_for_backend(host: &str, port: u16, timeout: Duration) -> SetupResult<()>
         format!("Kajas backend did not start on {host}:{port}"),
     )
     .into())
+}
+
+fn backend_is_ready(host: &str, port: u16) -> bool {
+    let url = format!("http://{host}:{port}/api/auth/status");
+    let body = match ureq::get(&url)
+        .timeout(Duration::from_millis(800))
+        .call()
+    {
+        Ok(response) => match response.into_string() {
+            Ok(body) => body,
+            Err(_) => return false,
+        },
+        Err(_) => return false,
+    };
+    body.contains("\"enabled\"") && body.contains("\"bootstrap_required\"")
 }
 
 fn port_is_open(host: &str, port: u16) -> bool {

@@ -57,6 +57,10 @@ export const api = {
 
   // Projects
   projects: () => request<any[]>("/api/projects"),
+  selectProjectDirectory: () =>
+    request<{ path: string | null }>("/api/projects/select-directory", {
+      method: "POST",
+    }),
   createProject: (name: string, path: string, createKajasDir = true) =>
     request<any>("/api/projects", {
       method: "POST",

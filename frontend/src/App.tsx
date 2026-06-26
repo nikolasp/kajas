@@ -13,9 +13,6 @@ const NAV = [
 export default function App() {
   const navigate = useNavigate();
   const [authEnabled, setAuthEnabled] = useState<boolean | null>(null);
-  const [bootstrapRequired, setBootstrapRequired] = useState<boolean | null>(
-    null,
-  );
   const [authed, setAuthed] = useState<boolean>(false);
   const [projects, setProjects] = useState<any[]>([]);
 
@@ -24,7 +21,6 @@ export default function App() {
       try {
         const status = await api.authStatus();
         setAuthEnabled(status.enabled);
-        setBootstrapRequired(status.bootstrap_required);
         // Try a simple authenticated call to figure out if we have a
         // valid session cookie. If 401, the API client will throw and
         // we redirect to /login.

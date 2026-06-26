@@ -2,10 +2,12 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { StatusPill } from "../components/StatusPill";
-import { timeAgo } from "../lib/format";
+import { TokenUsageChart } from "../components/TokenUsageChart";
+import { fmtNumber } from "../lib/format";
+import type { RunSummary } from "../lib/types";
 
 export function Dashboard() {
-  const [runs, setRuns] = useState<any[]>([]);
+  const [runs, setRuns] = useState<RunSummary[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -30,6 +32,22 @@ export function Dashboard() {
     };
   }, []);
 
+  const runStats = {
+    total: runs.length,
+    completed: runs.filter((run) => run.status === "completed").length,
+    cancelled: runs.filter((run) => run.status === "cancelled").length,
+    inProgress: runs.filter((run) =>
+      [
+        "planning",
+        "implementing",
+        "verifying",
+        "awaiting_plan_approval",
+        "awaiting_final_acceptance",
+      ].includes(run.status),
+    ).length,
+    failed: runs.filter((run) => run.status === "failed").length,
+  };
+
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-8">
       <header className="flex items-center justify-between">
@@ -50,14 +68,46 @@ export function Dashboard() {
         </div>
       )}
 
-      <section className="panel">
+      <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
+        <TokenUsageChart runs={runs} />
+
+        <div className="panel">
+          <div className="panel-header">
+            <h2 className="text-sm font-semibold text-ink-200">Runs</h2>
+          </div>
+          <div className="panel-body space-y-3 text-sm">
+            <div className="flex items-center justify-between">
+              <span className="text-ink-400">Total</span>
+              <span className="font-mono text-ink-100">{runStats.total}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-ink-400">Completed</span>
+              <span className="font-mono text-ink-100">{runStats.completed}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-ink-400">Cancelled</span>
+              <span className="font-mono text-ink-100">{runStats.cancelled}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-ink-400">In progress</span>
+              <span className="font-mono text-ink-100">{runStats.inProgress}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-ink-400">Failed</span>
+              <span className="font-mono text-ink-100">{runStats.failed}</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="panel overflow-x-auto">
         <div className="runs-table-header">
-          <div className="col-span-1">status</div>
-          <div className="col-span-4">title</div>
-          <div className="col-span-2">project</div>
-          <div className="col-span-2">workflow</div>
-          <div className="col-span-2">stage</div>
-          <div className="col-span-1 text-right">tokens</div>
+          <div>status</div>
+          <div>title</div>
+          <div>project</div>
+          <div>workflow</div>
+          <div>stage</div>
+          <div className="text-right">tokens</div>
         </div>
         {loading ? (
           <div className="p-5 text-sm text-ink-400">Loading…</div>
@@ -72,23 +122,23 @@ export function Dashboard() {
               key={run.id}
               className="runs-table-row no-underline"
             >
-              <div className="col-span-1">
+              <div className="min-w-0">
                 <StatusPill status={run.status} />
               </div>
-              <div className="col-span-4 truncate text-ink-100">
+              <div className="truncate text-ink-100">
                 {run.title || run.id}
               </div>
-              <div className="col-span-2 truncate text-ink-300">
+              <div className="truncate text-ink-300">
                 {run.project}
               </div>
-              <div className="col-span-2 truncate text-ink-300">
+              <div className="truncate text-ink-300">
                 {run.workflow}
               </div>
-              <div className="col-span-2 truncate text-ink-300">
+              <div className="truncate text-ink-300">
                 {run.status}
               </div>
-              <div className="col-span-1 text-right font-mono text-ink-200">
-                {run.total_tokens ?? "—"}
+              <div className="text-right font-mono text-ink-200">
+                {fmtNumber(run.total_tokens)}
               </div>
             </Link>
           ))

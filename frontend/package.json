@@ -9,10 +9,11 @@
     "backend:package": "node scripts/package-backend.mjs",
     "preview": "vite preview",
     "tauri": "tauri",
-    "desktop:dev": "node scripts/check-tauri-prereqs.mjs && npm run backend:package && tauri dev",
-    "desktop:build": "node scripts/check-tauri-prereqs.mjs && npm run backend:package && tauri build --no-bundle",
-    "desktop:bundle": "node scripts/check-tauri-prereqs.mjs && npm run backend:package && tauri build",
-    "desktop:bundle:linux-packages": "node scripts/check-tauri-prereqs.mjs && npm run backend:package && tauri build --bundles deb,rpm"
+    "desktop:prepare": "node scripts/check-tauri-prereqs.mjs && npm run build && npm run backend:package",
+    "desktop:dev": "npm run backend:package && tauri dev",
+    "desktop:build": "npm run desktop:prepare && tauri build --no-bundle",
+    "desktop:bundle": "npm run desktop:prepare && tauri build",
+    "desktop:bundle:linux-packages": "npm run desktop:prepare && tauri build --bundles deb,rpm"
   },
   "dependencies": {
     "react": "^18.3.1",

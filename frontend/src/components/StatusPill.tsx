@@ -17,8 +17,8 @@ const LABELS: Record<RunStatus, string> = {
 export function StatusPill({ status }: { status: RunStatus | string }) {
   const s = (status || "draft") as RunStatus;
   return (
-    <span className="inline-flex items-center gap-1.5">
-      <span className={`status-dot ${s}`} />
+    <span className="inline-flex min-w-0 items-center gap-1.5 whitespace-nowrap">
+      <span className={`status-dot ${s} shrink-0`} />
       <span className="text-xs text-ink-200">{LABELS[s] ?? s}</span>
     </span>
   );

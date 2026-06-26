@@ -45,6 +45,24 @@
   .input {
     @apply w-full rounded-lg border border-ink-700 bg-ink-900/60 px-3 py-2 text-sm text-ink-100 placeholder:text-ink-400 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500/50;
   }
+  select.input {
+    @apply cursor-pointer pr-10;
+    appearance: none;
+    color-scheme: dark;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 20 20' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M6 8l4 4 4-4' stroke='%23cdd3de' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-position: right 0.75rem center;
+    background-repeat: no-repeat;
+    background-size: 1rem;
+  }
+  select.input:required:invalid {
+    @apply text-ink-400;
+  }
+  select.input option {
+    @apply bg-ink-900 text-ink-100;
+  }
+  select.input option:disabled {
+    @apply text-ink-400;
+  }
   .badge {
     @apply inline-flex items-center rounded-full border border-ink-700 bg-ink-900/70 px-2 py-0.5 text-xs font-medium text-ink-200;
   }
@@ -64,10 +82,12 @@
   .status-dot.deleted { @apply bg-ink-500; }
 
   .runs-table-row {
-    @apply grid grid-cols-12 items-center gap-2 border-b border-ink-800 px-5 py-3 text-sm hover:bg-ink-800/40;
+    @apply grid min-w-[58rem] items-center gap-4 border-b border-ink-800 px-5 py-3 text-sm hover:bg-ink-800/40;
+    grid-template-columns: minmax(8.5rem, 1.1fr) minmax(14rem, 2.4fr) minmax(8rem, 1.2fr) minmax(8rem, 1.1fr) minmax(8rem, 1.1fr) minmax(6rem, 0.8fr);
   }
   .runs-table-header {
-    @apply grid grid-cols-12 gap-2 border-b border-ink-700 px-5 py-2 text-xs font-semibold uppercase tracking-wider text-ink-400;
+    @apply grid min-w-[58rem] gap-4 border-b border-ink-700 px-5 py-2 text-xs font-semibold uppercase tracking-wider text-ink-400;
+    grid-template-columns: minmax(8.5rem, 1.1fr) minmax(14rem, 2.4fr) minmax(8rem, 1.2fr) minmax(8rem, 1.1fr) minmax(8rem, 1.1fr) minmax(6rem, 0.8fr);
   }
   pre.event-json {
     @apply whitespace-pre-wrap break-words text-[0.78rem] leading-snug text-ink-200;

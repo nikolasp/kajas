@@ -194,3 +194,38 @@ def test_create_run_and_approve(client, kajas_env, tmp_path):
             break
         time.sleep(0.1)
     assert r.json()["status"] == "completed"
+
+
+def test_cancel_run_awaiting_plan_approval_returns_cancelled(client, kajas_env, tmp_path):
+    target = tmp_path / "myrepo"
+    target.mkdir()
+    client.post("/api/projects", json={"name": "myrepo", "path": str(target)})
+    r = client.post(
+        "/api/runs",
+        json={
+            "project": "myrepo",
+            "workflow": "default",
+            "title": "cancel test",
+            "prompt": "<!-- kajas:fake mode=happy -->\ndo it",
+        },
+    )
+    assert r.status_code == 201, r.text
+    run_id = r.json()["id"]
+
+    import time
+
+    for _ in range(50):
+        r = client.get(f"/api/runs/{run_id}")
+        if r.json()["status"] == "awaiting_plan_approval":
+            break
+        time.sleep(0.1)
+    else:
+        pytest.fail("run did not reach awaiting_plan_approval")
+
+    r = client.post(f"/api/runs/{run_id}/cancel")
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "cancelled"
+
+    r = client.get(f"/api/runs/{run_id}")
+    assert r.status_code == 200
+    assert r.json()["status"] == "cancelled"

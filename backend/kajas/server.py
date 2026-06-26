@@ -9,32 +9,27 @@ set a passphrase.
 from __future__ import annotations
 
 import asyncio
-import datetime as dt
-import json
 import logging
+import platform
+import shutil
+import subprocess
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
 from fastapi import (
-    Body,
-    Cookie,
     Depends,
     FastAPI,
     HTTPException,
     Query,
     Request,
     Response,
-    status,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
-from typing_extensions import Literal
 
-from . import paths
-from .adapters.base import NormalizedEvent
 from .auth import (
     SESSION_COOKIE,
     SessionUser,
@@ -42,7 +37,6 @@ from .auth import (
     generate_session_secret,
     hash_passphrase,
     issue_session,
-    read_session,
     require_user,
     verify_passphrase,
 )
@@ -50,17 +44,9 @@ from .config import (
     AuthConfig,
     GlobalConfig,
     ProjectConfig,
-    ProjectEntry,
-    add_project,
-    capability_gaps,
-    effective_policy,
-    find_project,
     load_global_config,
-    load_project_config,
     load_project_config_raw,
     merge_configs,
-    remove_project,
-    validate_for_runtime,
     write_global_config,
     write_project_config,
 )
@@ -257,6 +243,16 @@ def _wire_routes(app: FastAPI) -> None:
                 )
             )
         return out
+
+    @app.post("/api/projects/select-directory")
+    async def select_project_directory(
+        _: SessionUser = Depends(require_user),
+    ) -> dict[str, str | None]:
+        try:
+            selected = _select_directory()
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
+        return {"path": selected}
 
     @app.post("/api/projects", status_code=201)
     async def create_project(
@@ -545,6 +541,99 @@ def _must_inspect(name: str) -> ProjectInfo:
         return inspect_project(name)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+
+
+def _select_directory() -> str | None:
+    if platform.system() == "Darwin":
+        return _select_directory_macos()
+    if platform.system() == "Windows":
+        return _select_directory_windows()
+    selected = _select_directory_linux()
+    if selected is not None:
+        return selected
+    return _select_directory_tk()
+
+
+def _select_directory_macos() -> str | None:
+    script = 'POSIX path of (choose folder with prompt "Select project directory")'
+    try:
+        result = subprocess.run(
+            ["osascript", "-e", script],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError as exc:
+        raise RuntimeError("directory picker is unavailable: osascript not found") from exc
+    if result.returncode != 0:
+        if "User canceled" in result.stderr:
+            return None
+        detail = result.stderr.strip() or result.stdout.strip() or "unknown error"
+        raise RuntimeError(f"directory picker failed: {detail}")
+    return result.stdout.strip() or None
+
+
+def _select_directory_windows() -> str | None:
+    script = (
+        "Add-Type -AssemblyName System.Windows.Forms; "
+        "$dialog = New-Object System.Windows.Forms.FolderBrowserDialog; "
+        "$dialog.Description = 'Select project directory'; "
+        "if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) "
+        "{ $dialog.SelectedPath }"
+    )
+    try:
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", script],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError as exc:
+        raise RuntimeError("directory picker is unavailable: PowerShell not found") from exc
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip() or "unknown error"
+        raise RuntimeError(f"directory picker failed: {detail}")
+    return result.stdout.strip() or None
+
+
+def _select_directory_linux() -> str | None:
+    commands = (
+        ["zenity", "--file-selection", "--directory"],
+        ["kdialog", "--getexistingdirectory"],
+    )
+    for command in commands:
+        if not shutil.which(command[0]):
+            continue
+        result = subprocess.run(command, check=False, capture_output=True, text=True)
+        if result.returncode == 0:
+            return result.stdout.strip() or None
+        if result.returncode == 1:
+            return None
+        detail = result.stderr.strip() or result.stdout.strip() or "unknown error"
+        raise RuntimeError(f"directory picker failed: {detail}")
+    return None
+
+
+def _select_directory_tk() -> str | None:
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(f"directory picker is unavailable: {exc}") from exc
+
+    root = None
+    try:
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        selected = filedialog.askdirectory(title="Select project directory")
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(f"directory picker failed: {exc}") from exc
+    finally:
+        if root is not None:
+            root.destroy()
+
+    return selected or None
 
 
 def _run_summary(

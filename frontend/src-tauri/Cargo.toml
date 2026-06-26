@@ -15,3 +15,4 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-shell = "2"
+ureq = { version = "2", default-features = false, features = ["json"] }
