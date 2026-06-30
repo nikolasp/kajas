@@ -98,7 +98,7 @@ export interface AuthStatus {
   bootstrap_required: boolean;
 }
 
-export type BenchmarkStatus = "running" | "completed" | "failed";
+export type BenchmarkStatus = "running" | "completed" | "failed" | "cancelled";
 
 export interface BenchmarkSummary {
   id: string;

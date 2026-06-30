@@ -148,6 +148,10 @@ export const api = {
     }),
   benchmark: (id: string) =>
     request<any>(`/api/benchmarks/${encodeURIComponent(id)}`),
+  cancelBenchmark: (id: string) =>
+    request<any>(`/api/benchmarks/${encodeURIComponent(id)}/cancel`, {
+      method: "POST",
+    }),
   deleteBenchmark: (id: string) =>
     request<{ ok: boolean }>(`/api/benchmarks/${encodeURIComponent(id)}`, {
       method: "DELETE",

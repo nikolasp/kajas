@@ -28,7 +28,7 @@ from . import agency_bench
 from .paths import data_dir
 
 
-BenchmarkStatus = Literal["running", "completed", "failed"]
+BenchmarkStatus = Literal["running", "completed", "failed", "cancelled"]
 CONTEXT_PROMPT_VERSION = "2026-06-26.strict-output-v2"
 SCORING_VERSION = "2026-06-26.tool50-context25-coding10-latency15"
 
@@ -143,6 +143,7 @@ class BenchmarkStore:
 
 
 DEFAULT_BENCHMARK_STORE = BenchmarkStore()
+_BENCHMARK_TASKS: dict[str, asyncio.Task[None]] = {}
 
 
 async def run_benchmark(
@@ -186,6 +187,14 @@ async def run_benchmark(
         run.summary = _summary(run)
         run.status = "completed"
         store.save(run)
+    except asyncio.CancelledError:
+        run.status = "cancelled"
+        run.error = "Benchmark run was cancelled."
+        run.scores["latency_reliability"] = round(_latency_score(run), 2)
+        run.total_score = round(sum(run.scores.values()), 2)
+        run.usable = False
+        store.save(run)
+        raise
     except Exception as exc:  # noqa: BLE001
         run.status = "failed"
         run.error = str(exc)
@@ -1090,4 +1099,28 @@ def _now() -> str:
 
 
 def start_benchmark_task(run_id: str, payload: BenchmarkInput) -> None:
-    asyncio.create_task(run_benchmark(run_id, payload))
+    task = asyncio.create_task(run_benchmark(run_id, payload))
+    _BENCHMARK_TASKS[run_id] = task
+    task.add_done_callback(lambda _task: _BENCHMARK_TASKS.pop(run_id, None))
+
+
+def cancel_benchmark_task(
+    run_id: str,
+    *,
+    store: BenchmarkStore = DEFAULT_BENCHMARK_STORE,
+) -> BenchmarkRun | None:
+    run = store.read(run_id)
+    if run is None:
+        return None
+    if run.status != "running":
+        return run
+
+    run.status = "cancelled"
+    run.error = "Benchmark run was cancelled."
+    run.usable = False
+    store.save(run)
+
+    task = _BENCHMARK_TASKS.get(run_id)
+    if task and not task.done():
+        task.cancel()
+    return store.read(run_id) or run

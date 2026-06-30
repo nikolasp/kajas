@@ -24,8 +24,11 @@ export function BenchmarkRun() {
   const [judgeTool, setJudgeTool] = useState<"codex" | "pi">("codex");
   const [judgeModel, setJudgeModel] = useState("gpt-5.5");
   const [submitting, setSubmitting] = useState(false);
+  const [cancelingId, setCancelingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [newRunOpen, setNewRunOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const selected = useMemo(
     () => runs.find((run) => run.id === selectedId) || runs[0] || null,
@@ -106,6 +109,42 @@ export function BenchmarkRun() {
     setNewRunOpen(true);
   }
 
+  async function cancelRun(run: BenchmarkSummary | BenchmarkDetail) {
+    if (run.status !== "running") return;
+
+    setCancelingId(run.id);
+    setError(null);
+    try {
+      const updated = await api.cancelBenchmark(run.id);
+      setDetail(updated);
+      await reload();
+    } catch (e: any) {
+      setError(e.detail || "Failed to cancel benchmark");
+    } finally {
+      setCancelingId(null);
+    }
+  }
+
+  async function deleteRun(run: BenchmarkSummary | BenchmarkDetail) {
+    if (run.status === "running") return;
+
+    setDeletingId(run.id);
+    setError(null);
+    try {
+      await api.deleteBenchmark(run.id);
+      const nextRuns = runs.filter((item) => item.id !== run.id);
+      setRuns(nextRuns);
+      if (selectedId === run.id) {
+        setSelectedId(nextRuns[0]?.id || null);
+        setDetail(null);
+      }
+    } catch (e: any) {
+      setError(e.detail || "Failed to delete benchmark");
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   return (
     <div className="mx-auto max-w-7xl space-y-6 p-8">
       <header className="flex flex-wrap items-end justify-between gap-4">
@@ -116,8 +155,33 @@ export function BenchmarkRun() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {selected?.status === "running" && (
+            <button
+              className="btn-danger"
+              onClick={() => cancelRun(selected)}
+              disabled={cancelingId === selected.id}
+            >
+              {cancelingId === selected.id ? "Canceling..." : "Cancel run"}
+            </button>
+          )}
+          {selected && selected.status !== "running" && (
+            <button
+              className="btn-danger"
+              onClick={() => deleteRun(selected)}
+              disabled={deletingId === selected.id}
+            >
+              {deletingId === selected.id ? "Deleting..." : "Delete run"}
+            </button>
+          )}
           <button className="btn-primary" onClick={() => setNewRunOpen(true)}>
             New run
+          </button>
+          <button
+            className="btn lg:hidden"
+            onClick={() => setHistoryOpen(true)}
+            disabled={submitting}
+          >
+            History
           </button>
           <Link to="/benchmark" className="btn">
             Comparison
@@ -138,68 +202,36 @@ export function BenchmarkRun() {
         <section className="space-y-6">
           <ScoreBoard run={detail || selected} />
 
-          <div className="grid gap-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(19rem,0.9fr)]">
-            <section className="panel overflow-hidden">
-              <div className="panel-header">
-                <h2 className="text-sm font-semibold text-ink-200">Tests</h2>
-                {detail && <span className="badge">{detail.tests.length} checks</span>}
+          <section className="panel overflow-hidden">
+            <div className="panel-header">
+              <h2 className="text-sm font-semibold text-ink-200">Tests</h2>
+              {detail && <span className="badge">{detail.tests.length} checks</span>}
+              <button
+                className="btn"
+                onClick={() => setHistoryOpen(true)}
+                disabled={submitting}
+              >
+                History ({runs.length})
+              </button>
+            </div>
+            {!detail ? (
+              <div className="p-5 text-sm text-ink-400">No benchmark selected.</div>
+            ) : (
+              <div className="divide-y divide-ink-800">
+                {detail.tests.map((test) => (
+                  <TestRow key={test.name} test={test} raw={detail.raw} />
+                ))}
               </div>
-              {!detail ? (
-                <div className="p-5 text-sm text-ink-400">No benchmark selected.</div>
-              ) : (
-                <div className="divide-y divide-ink-800">
-                  {detail.tests.map((test) => (
-                    <TestRow key={test.name} test={test} raw={detail.raw} />
-                  ))}
-                </div>
-              )}
-            </section>
+            )}
+          </section>
 
-            <section className="panel overflow-hidden">
-              <div className="panel-header">
-                <h2 className="text-sm font-semibold text-ink-200">History</h2>
-                <span className="badge">{runs.length}</span>
-              </div>
-              <div className="max-h-[34rem] divide-y divide-ink-800 overflow-y-auto">
-                {runs.length === 0 ? (
-                  <div className="p-5 text-sm text-ink-400">Run a benchmark to create history.</div>
-                ) : (
-                  runs.map((run) => (
-                    <button
-                      key={run.id}
-                      onClick={() => setSelectedId(run.id)}
-                      className={[
-                        "block w-full px-5 py-3 text-left transition",
-                        selected?.id === run.id ? "bg-accent-600/10" : "hover:bg-ink-800/60",
-                      ].join(" ")}
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="truncate text-sm font-medium text-ink-100">
-                          {run.model || run.configured_model || "Detecting model"}
-                        </span>
-                        <span className={scoreBadge(run)}>{run.status === "running" ? "running" : `${run.total_score.toFixed(1)}`}</span>
-                      </div>
-                      <div className="mt-1 truncate text-xs text-ink-400">{run.base_url}</div>
-                      <div className="mt-2 flex items-center justify-between text-xs text-ink-500">
-                        <span>{timeAgo(run.created_at)}</span>
-                        <span
-                          role="button"
-                          tabIndex={0}
-                          className="text-accent-400 hover:text-accent-300"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            rerun(run);
-                          }}
-                        >
-                          rerun config
-                        </span>
-                      </div>
-                    </button>
-                  ))
-                )}
-              </div>
-            </section>
-          </div>
+          <button
+            className="btn w-full lg:hidden"
+            onClick={() => setHistoryOpen(true)}
+            disabled={submitting}
+          >
+            View history ({runs.length} runs)
+          </button>
 
           {detail && (
             <section className="panel overflow-hidden">
@@ -217,6 +249,94 @@ export function BenchmarkRun() {
           )}
         </section>
       </div>
+
+      {historyOpen && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-ink-900/80 px-4 py-8 backdrop-blur-sm">
+          <button
+            className="absolute inset-0 h-full w-full cursor-default"
+            aria-label="Close history dialog"
+            onClick={() => setHistoryOpen(false)}
+          />
+          <section
+            role="dialog"
+            aria-modal="true"
+            className="panel relative w-full max-w-2xl overflow-hidden"
+          >
+            <div className="panel-header">
+              <h2 className="text-sm font-semibold text-ink-100">History</h2>
+              <button className="btn" onClick={() => setHistoryOpen(false)}>Close</button>
+            </div>
+            <div className="panel-body max-h-[34rem] divide-y divide-ink-800 overflow-y-auto">
+              {runs.length === 0 ? (
+                <div className="p-5 text-sm text-ink-400">Run a benchmark to create history.</div>
+              ) : (
+                runs.map((run) => (
+                  <button
+                    key={run.id}
+                    onClick={() => {
+                      setSelectedId(run.id);
+                      setHistoryOpen(false);
+                    }}
+                    className={[
+                      "block w-full px-5 py-3 text-left transition",
+                      selected?.id === run.id ? "bg-accent-600/10" : "hover:bg-ink-800/60",
+                    ].join(" ")}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="truncate text-sm font-medium text-ink-100">
+                        {run.model || run.configured_model || "Detecting model"}
+                      </span>
+                      <span className={scoreBadge(run)}>{run.status === "running" ? "running" : `${run.total_score.toFixed(1)}`}</span>
+                    </div>
+                    <div className="mt-1 truncate text-xs text-ink-400">{run.base_url}</div>
+                    <div className="mt-2 flex items-center justify-between gap-3 text-xs text-ink-500">
+                      <span>{timeAgo(run.created_at)}</span>
+                      <div className="flex items-center gap-3">
+                        {run.status === "running" ? (
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            className="text-rose-300 hover:text-rose-200"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              cancelRun(run);
+                            }}
+                          >
+                            {cancelingId === run.id ? "canceling..." : "cancel"}
+                          </span>
+                        ) : (
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            className="text-rose-300 hover:text-rose-200"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deleteRun(run);
+                            }}
+                          >
+                            {deletingId === run.id ? "deleting..." : "delete"}
+                          </span>
+                        )}
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          className="text-accent-400 hover:text-accent-300"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            rerun(run);
+                          }}
+                        >
+                          rerun config
+                        </span>
+                      </div>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          </section>
+        </div>
+      )}
 
       {newRunOpen && (
         <NewRunModal
@@ -722,7 +842,7 @@ function scoreBadge(run: BenchmarkSummary | BenchmarkDetail) {
   if (run.status === "running") {
     return "badge border-amber-500/30 text-amber-300";
   }
-  if (run.status === "failed") {
+  if (run.status === "failed" || run.status === "cancelled") {
     return "badge border-rose-500/30 text-rose-300";
   }
   return run.usable

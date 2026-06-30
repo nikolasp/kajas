@@ -65,7 +65,7 @@ pub fn run() {
                 return Err(io::Error::new(
                     io::ErrorKind::AddrInUse,
                     format!(
-                        "Kajas backend is already running on {host}:{port}. Stop that process, or set KAJAS_DESKTOP_REUSE_BACKEND=1 to reuse it."
+                        "Kajas backend is already running on {host}:{port}. Stop that process, or remove KAJAS_DESKTOP_REUSE_BACKEND=0 to reuse it."
                     ),
                 )
                 .into());
@@ -202,12 +202,9 @@ fn backend_command() -> Command {
 }
 
 fn should_reuse_existing_backend() -> bool {
-    if !cfg!(debug_assertions) {
-        return true;
-    }
-    matches!(
+    !matches!(
         env::var("KAJAS_DESKTOP_REUSE_BACKEND").ok().as_deref(),
-        Some("1") | Some("true") | Some("TRUE") | Some("yes") | Some("YES")
+        Some("0") | Some("false") | Some("FALSE") | Some("no") | Some("NO")
     )
 }
 

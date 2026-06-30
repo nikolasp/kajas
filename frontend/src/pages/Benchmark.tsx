@@ -10,6 +10,7 @@ export function Benchmark() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [cancelingId, setCancelingId] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<BenchmarkSummary | null>(null);
 
   async function reload() {
@@ -89,6 +90,21 @@ export function Benchmark() {
   function requestDelete(run: BenchmarkSummary) {
     if (run.status === "running") return;
     setPendingDelete(run);
+  }
+
+  async function cancelRun(run: BenchmarkSummary) {
+    if (run.status !== "running") return;
+
+    setCancelingId(run.id);
+    setError(null);
+    try {
+      await api.cancelBenchmark(run.id);
+      await reload();
+    } catch (e: any) {
+      setError(e.detail || "Failed to cancel benchmark");
+    } finally {
+      setCancelingId(null);
+    }
   }
 
   async function confirmDelete() {
@@ -249,14 +265,25 @@ export function Benchmark() {
                 <div><span className={statusBadge(run)}>{run.status}</span></div>
                 <div className="text-right text-xs text-ink-400">{timeAgo(run.created_at)}</div>
                 <div className="text-right">
-                  <button
-                    type="button"
-                    className="btn-danger px-2 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-50"
-                    disabled={run.status === "running" || deletingId === run.id}
-                    onClick={() => requestDelete(run)}
-                  >
-                    {deletingId === run.id ? "Deleting..." : "Delete"}
-                  </button>
+                  {run.status === "running" ? (
+                    <button
+                      type="button"
+                      className="btn-danger px-2 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                      disabled={cancelingId === run.id}
+                      onClick={() => cancelRun(run)}
+                    >
+                      {cancelingId === run.id ? "Canceling..." : "Cancel"}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn-danger px-2 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                      disabled={deletingId === run.id}
+                      onClick={() => requestDelete(run)}
+                    >
+                      {deletingId === run.id ? "Deleting..." : "Delete"}
+                    </button>
+                  )}
                 </div>
               </div>
             ))
@@ -366,7 +393,7 @@ function scoreBadge(run: BenchmarkSummary) {
   if (run.status === "running") {
     return "badge border-amber-500/30 text-amber-300";
   }
-  if (run.status === "failed") {
+  if (run.status === "failed" || run.status === "cancelled") {
     return "badge border-rose-500/30 text-rose-300";
   }
   return run.usable

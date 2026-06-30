@@ -43,6 +43,7 @@ from .auth import (
 from .benchmarks import (
     BenchmarkInput,
     DEFAULT_BENCHMARK_STORE,
+    cancel_benchmark_task,
     start_benchmark_task,
 )
 from .config import (
@@ -536,6 +537,15 @@ def _wire_routes(app: FastAPI) -> None:
         run_id: str, _: SessionUser = Depends(require_user)
     ) -> dict[str, Any]:
         run = DEFAULT_BENCHMARK_STORE.read(run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="benchmark not found")
+        return run.model_dump(mode="json")
+
+    @app.post("/api/benchmarks/{run_id}/cancel")
+    async def cancel_benchmark(
+        run_id: str, _: SessionUser = Depends(require_user)
+    ) -> dict[str, Any]:
+        run = cancel_benchmark_task(run_id)
         if run is None:
             raise HTTPException(status_code=404, detail="benchmark not found")
         return run.model_dump(mode="json")
