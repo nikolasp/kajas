@@ -365,4 +365,4 @@ def test_legacy_benchmark_scores_are_normalized(client, kajas_env):
     assert tests["agency.sel.s03_dept"]["score"] == 2.06
     assert tests["agency.single.tomas_dept"]["score"] == 0.0
     assert tests["coding_flappy_game"]["score"] == 9.71
-    assert detail["scoring_version"] == "2026-06-26.tool50-context25-coding10-latency15"
+    assert detail["scoring_version"] == "2026-06-30.tool50-context25-coding10x2-latency15"

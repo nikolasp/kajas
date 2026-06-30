@@ -30,7 +30,7 @@ from .paths import data_dir
 
 BenchmarkStatus = Literal["running", "completed", "failed", "cancelled"]
 CONTEXT_PROMPT_VERSION = "2026-06-26.strict-output-v2"
-SCORING_VERSION = "2026-06-26.tool50-context25-coding10-latency15"
+SCORING_VERSION = "2026-06-30.tool50-context25-coding10x2-latency15"
 
 
 class BenchmarkInput(BaseModel):
@@ -730,56 +730,116 @@ async def _context_tests(client: OpenAICompatClient, run: BenchmarkRun, model: s
     return score
 
 
+CODING_TESTS: list[dict[str, Any]] = [
+    {
+        "name": "coding_flappy_game",
+        "system": "You write compact, runnable browser games. Return only one HTML document.",
+        "prompt": (
+            "Create a single-file Flappy Bird style browser game. It must include HTML, CSS, "
+            "and JavaScript in one document, keyboard controls, collision detection, scoring, "
+            "restart after game over, and no external assets."
+        ),
+        "required_terms": ["<html", "<script", "collision", "score"],
+        "rubric": (
+            "- completeness as a playable Flappy Bird style game\n"
+            "- runnable single-file HTML structure\n"
+            "- keyboard controls\n"
+            "- game loop and animation\n"
+            "- collision detection\n"
+            "- scoring\n"
+            "- restart after game over\n"
+            "- code clarity and maintainability"
+        ),
+    },
+    {
+        "name": "coding_falling_sand_water",
+        "system": (
+            "Act as an expert software engineer specializing in low-level graphics and simulation algorithms. "
+            "Return only one complete HTML document."
+        ),
+        "prompt": (
+            "Write a complete, single-file \"Falling Sand & Water\" simulation in HTML5 Canvas and vanilla JavaScript.\n"
+            "Requirements:\n"
+            "1. Everything must be in ONE single index.html file (HTML, CSS, and JS combined). No external libraries.\n"
+            "2. Grid & Resolution: Canvas size 400x400. Internal simulation grid should be 100x100 cells for high performance.\n"
+            "3. Elements & Interaction:\n"
+            "   - Sand (Yellow): falls down, slides diagonally down-left/right if blocked.\n"
+            "   - Water (Blue): falls down, slides diagonally, and flows horizontally left/right if blocked.\n"
+            "   - Solid Wall (Gray): immobile barrier.\n"
+            "4. Logic Rule: Iterate through the grid from the BOTTOM row up to the top row each frame to prevent particles from teleporting. "
+            "Randomize whether left or right is checked first for horizontal movement.\n"
+            "5. Add UI buttons to select the element (Sand, Water, Wall), a clear button, and allow drawing on the canvas with the mouse.\n\n"
+            "Provide only the full, working code block ready to be saved and opened in a browser."
+        ),
+        "required_terms": ["<html", "<script", "canvas", "sand", "water", "wall"],
+        "rubric": (
+            "- runnable single-file HTML with inline CSS and JavaScript only\n"
+            "- 400x400 canvas and 100x100 simulation grid\n"
+            "- sand, water, and wall behavior matching the prompt\n"
+            "- bottom-up grid iteration each frame\n"
+            "- randomized left/right movement checks\n"
+            "- mouse drawing and element/clear UI\n"
+            "- code clarity and maintainability"
+        ),
+    },
+]
+
+
 async def _coding_test(client: OpenAICompatClient, run: BenchmarkRun, model: str) -> float:
-    artifact = ""
-    generation_ok = False
-    judge_score = 0.0
-    detail = ""
-    try:
-        data = await client.chat(
-            model=model,
-            kind="coding_generation",
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You write compact, runnable browser games. Return only one HTML document.",
+    total = 0.0
+    per_test_budget = 10.0 / len(CODING_TESTS)
+    for spec in CODING_TESTS:
+        artifact = ""
+        generation_ok = False
+        judge_score = 0.0
+        detail = ""
+        try:
+            data = await client.chat(
+                model=model,
+                kind=f"{spec['name']}_generation",
+                messages=[
+                    {"role": "system", "content": spec["system"]},
+                    {"role": "user", "content": spec["prompt"]},
+                ],
+                max_tokens=8192,
+            )
+            artifact = data["choices"][0]["message"].get("content") or ""
+            lowered = artifact.lower()
+            generation_ok = all(str(term).lower() in lowered for term in spec["required_terms"])
+            judge = _run_external_coding_judge(
+                artifact=artifact,
+                tool=run.coding_judge_tool,
+                model=run.coding_judge_model,
+                run=run,
+                test_name=spec["name"],
+                prompt=spec["prompt"],
+                rubric=spec["rubric"],
+            )
+            parsed = _extract_json_object(judge["text"])
+            judge_score = max(0.0, min(10.0, float(parsed.get("score", 0))))
+            if not generation_ok:
+                judge_score = min(judge_score, 3.5)
+            detail = parsed.get("notes") or "judge returned a score"
+        except Exception as exc:  # noqa: BLE001
+            detail = str(exc)
+        contribution = (judge_score / 10.0) * per_test_budget
+        total += contribution
+        run.tests.append(
+            {
+                "name": spec["name"],
+                "ok": judge_score >= 7.0,
+                "score": round(contribution, 2),
+                "detail": detail,
+                "artifact": artifact,
+                "metadata": {
+                    "judge_score": round(judge_score, 2),
+                    "max_score": round(per_test_budget, 2),
+                    "prompt": spec["prompt"],
+                    "rubric": spec["rubric"],
                 },
-                {
-                    "role": "user",
-                    "content": (
-                        "Create a single-file Flappy Bird style browser game. It must include HTML, CSS, "
-                        "and JavaScript in one document, keyboard controls, collision detection, scoring, "
-                        "restart after game over, and no external assets."
-                    ),
-                },
-            ],
-            max_tokens=4096,
+            }
         )
-        artifact = data["choices"][0]["message"].get("content") or ""
-        generation_ok = all(s in artifact.lower() for s in ["<html", "<script", "collision", "score"])
-        judge = _run_external_coding_judge(
-            artifact=artifact,
-            tool=run.coding_judge_tool,
-            model=run.coding_judge_model,
-            run=run,
-        )
-        parsed = _extract_json_object(judge["text"])
-        judge_score = max(0.0, min(10.0, float(parsed.get("score", 0))))
-        if not generation_ok:
-            judge_score = min(judge_score, 3.5)
-        detail = parsed.get("notes") or "judge returned a score"
-    except Exception as exc:  # noqa: BLE001
-        detail = str(exc)
-    run.tests.append(
-        {
-            "name": "coding_flappy_game",
-            "ok": judge_score >= 7.0,
-            "score": round(judge_score, 2),
-            "detail": detail,
-            "artifact": artifact,
-        }
-    )
-    return judge_score
+    return total
 
 
 def _latency_score(run: BenchmarkRun) -> float:
@@ -803,30 +863,34 @@ def _run_external_coding_judge(
     tool: Literal["codex", "pi"],
     model: str,
     run: BenchmarkRun,
+    test_name: str,
+    prompt: str,
+    rubric: str,
 ) -> dict[str, str]:
     if not shutil.which(tool):
         raise RuntimeError(f"{tool} is not available for coding judge")
-    prompt = _coding_judge_prompt(artifact)
+    judge_prompt = _coding_judge_prompt(artifact=artifact, task_prompt=prompt, rubric=rubric)
     start = time.perf_counter()
     with tempfile.TemporaryDirectory(prefix="kajas-benchmark-judge-") as tmp:
         tmp_path = Path(tmp)
         if tool == "codex":
-            proc = _run_codex_judge(tmp_path, prompt, model)
+            proc = _run_codex_judge(tmp_path, judge_prompt, model)
             text = _extract_codex_text(proc.stdout)
         else:
             prompt_path = tmp_path / "judge.md"
-            prompt_path.write_text(prompt, encoding="utf-8")
+            prompt_path.write_text(judge_prompt, encoding="utf-8")
             proc = _run_pi_judge(tmp_path, prompt_path, model)
             text = _extract_pi_text(proc.stdout)
     elapsed = (time.perf_counter() - start) * 1000
     run.latency_ms.append(elapsed)
     run.raw.append(
         {
-            "kind": "coding_judge_external",
+            "kind": f"{test_name}_judge_external",
+            "test_name": test_name,
             "request": {
                 "tool": tool,
                 "model": model,
-                "prompt": prompt,
+                "prompt": judge_prompt,
             },
             "status_code": proc.returncode,
             "latency_ms": elapsed,
@@ -891,20 +955,18 @@ def _run_pi_judge(
     )
 
 
-def _coding_judge_prompt(artifact: str) -> str:
+def _coding_judge_prompt(*, artifact: str, task_prompt: str, rubric: str) -> str:
     return (
-        "You are an external benchmark judge. Evaluate the submitted single-file browser game.\n"
+        "You are an external benchmark judge. Evaluate the submitted single-file browser HTML/JS artifact.\n"
         "Return only valid JSON with this shape:\n"
         '{"score": number, "notes": string}\n\n'
-        "Score must be from 0 to 10. Award points for:\n"
-        "- completeness as a playable Flappy Bird style game\n"
-        "- runnable single-file HTML structure\n"
-        "- keyboard controls\n"
-        "- game loop and animation\n"
-        "- collision detection\n"
-        "- scoring\n"
-        "- restart after game over\n"
-        "- code clarity and maintainability\n\n"
+        "Score must be from 0 to 10. Award points according to this task and rubric.\n\n"
+        "ORIGINAL TASK START\n"
+        f"{task_prompt}\n"
+        "ORIGINAL TASK END\n\n"
+        "RUBRIC START\n"
+        f"{rubric}\n"
+        "\nRUBRIC END\n\n"
         "Do not reward prose-only answers. If the artifact is not runnable code, score it below 3.\n\n"
         "SUBMITTED ARTIFACT START\n"
         f"{artifact[:50000]}\n"

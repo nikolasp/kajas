@@ -522,6 +522,7 @@ function NewRunModal({
 
 function TestRow({ test, raw }: { test: Record<string, any>; raw: Array<Record<string, any>> }) {
   const artifact = testArtifact(test, raw);
+  const previewHtml = htmlPreviewSource(test, artifact.result);
   return (
     <details className="group px-5 py-3 text-sm">
       <summary className="grid cursor-pointer list-none gap-3 md:grid-cols-[1fr_5rem]">
@@ -537,6 +538,7 @@ function TestRow({ test, raw }: { test: Record<string, any>; raw: Array<Record<s
           <span className="font-mono text-ink-200">{Number(test.score || 0).toFixed(2)}</span>
         </div>
       </summary>
+      {previewHtml && <HtmlPreview html={previewHtml} />}
       <div className="mt-4 grid gap-3 xl:grid-cols-3">
         <TestArtifact title="Prompt" value={artifact.prompt} />
         <TestArtifact title="Result" value={artifact.result} />
@@ -546,7 +548,7 @@ function TestRow({ test, raw }: { test: Record<string, any>; raw: Array<Record<s
   );
 }
 
-function TestArtifact({ title, value }: { title: string; value: string | null }) {
+function TestArtifact({ title, value }: { title: string | null; value: string | null }) {
   return (
     <div className="rounded-lg border border-ink-700 bg-ink-900/50 p-3">
       <div className="label">{title}</div>
@@ -555,6 +557,32 @@ function TestArtifact({ title, value }: { title: string; value: string | null })
       ) : (
         <p className="mt-2 text-xs text-ink-500">Not stored for this check.</p>
       )}
+    </div>
+  );
+}
+
+function HtmlPreview({ html }: { html: string }) {
+  return (
+    <div className="mt-4 rounded-lg border border-accent-500/30 bg-ink-950 p-3">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="label">Web preview</div>
+          <p className="mt-1 text-xs text-ink-500">Sandboxed render of the generated single-file HTML.</p>
+        </div>
+        <button
+          type="button"
+          className="btn"
+          onClick={() => openHtmlPreview(html)}
+        >
+          Open full page
+        </button>
+      </div>
+      <iframe
+        title="Generated HTML preview"
+        className="mt-3 h-[460px] w-full rounded-md border border-ink-700 bg-white"
+        sandbox="allow-scripts allow-forms allow-pointer-lock"
+        srcDoc={html}
+      />
     </div>
   );
 }
@@ -729,11 +757,33 @@ function rawEntriesForTest(test: Record<string, any>, raw: Array<Record<string, 
     if (testName === "tool_multistep" && kind.startsWith("tool_multistep_")) {
       return true;
     }
-    if (testName === "coding_flappy_game") {
-      return kind === "coding_generation" || kind === "coding_judge_external";
+    if (testName.startsWith("coding_")) {
+      return kind === "coding_generation" || kind === "coding_judge_external" || kind.startsWith(`${testName}_`);
     }
     return false;
   });
+}
+
+function htmlPreviewSource(test: Record<string, any>, result: string | null) {
+  const name = String(test.name || "");
+  if (!name.startsWith("coding_")) return null;
+  return extractHtmlDocument(String(test.artifact || "")) || extractHtmlDocument(result || "");
+}
+
+function extractHtmlDocument(value: string) {
+  if (!value) return null;
+  const fence = value.match(/```(?:html)?\s*([\s\S]*?)```/i);
+  const text = (fence?.[1] || value).trim();
+  const htmlStart = text.search(/<!doctype\s+html|<html[\s>]/i);
+  if (htmlStart < 0) return null;
+  return text.slice(htmlStart).trim();
+}
+
+function openHtmlPreview(html: string) {
+  const blob = new Blob([html], { type: "text/html" });
+  const url = URL.createObjectURL(blob);
+  window.open(url, "_blank", "noopener,noreferrer");
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
 function promptFromRaw(entries: Array<Record<string, any>>) {
@@ -800,6 +850,7 @@ function expectationForTest(test: Record<string, any>) {
     tool_multistep: "Use add and multiply tools to compute (17 + 25) * 3, then submit 126.",
     json_only: "Return only valid JSON: verdict='pass', numbers=[3, 5, 8], checksum=16.",
     coding_flappy_game: "Return a runnable single-file Flappy Bird style HTML game with controls, collision detection, scoring, and restart.",
+    coding_falling_sand_water: "Return a runnable single-file Falling Sand & Water canvas simulation with 400x400 canvas, 100x100 grid, sand/water/wall rules, bottom-up updates, randomized movement direction, drawing, buttons, and clear.",
   };
   if (exact[name]) return exact[name];
   if (name.startsWith("context_")) {
