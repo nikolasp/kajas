@@ -30,6 +30,7 @@ from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
+from . import __version__
 from .auth import (
     SESSION_COOKIE,
     SessionUser,
@@ -105,7 +106,7 @@ async def _lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     app = FastAPI(
         title="Kajas",
-        version="0.1.1",
+        version=__version__,
         docs_url="/api/docs",
         redoc_url=None,
         lifespan=_lifespan,
@@ -222,6 +223,7 @@ def _wire_routes(app: FastAPI) -> None:
         return {
             "enabled": cfg.auth.enabled,
             "bootstrap_required": cfg.auth.enabled is False,
+            "version": __version__,
         }
 
     # ----- Dashboard ----------------------------------------------------

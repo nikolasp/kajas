@@ -56,19 +56,37 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .setup(|app| {
             let host = env::var("KAJAS_DESKTOP_HOST").unwrap_or_else(|_| "127.0.0.1".into());
-            let port = env::var("KAJAS_DESKTOP_PORT")
+            let mut port = env::var("KAJAS_DESKTOP_PORT")
                 .ok()
                 .and_then(|value| value.parse::<u16>().ok())
                 .unwrap_or(8765);
 
-            if backend_is_ready(&host, port) && !should_reuse_existing_backend() {
-                return Err(io::Error::new(
-                    io::ErrorKind::AddrInUse,
-                    format!(
-                        "Kajas backend is already running on {host}:{port}. Stop that process, or remove KAJAS_DESKTOP_REUSE_BACKEND=0 to reuse it."
-                    ),
-                )
-                .into());
+            if backend_is_ready(&host, port) {
+                if !should_reuse_existing_backend() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::AddrInUse,
+                        format!(
+                            "Kajas backend is already running on {host}:{port}. Stop that process, or remove KAJAS_DESKTOP_REUSE_BACKEND=0 to reuse it."
+                        ),
+                    )
+                    .into());
+                }
+
+                // Reusing any listening Kajas backend made desktop upgrades look
+                // successful while the UI was still talking to an older sidecar.
+                // Only reuse a backend with the same package version unless the
+                // user explicitly opts into forced reuse.
+                if !backend_version_matches(&host, port) && !should_force_reuse_existing_backend() {
+                    port = find_available_port(&host, port.saturating_add(1), 100)
+                        .ok_or_else(|| {
+                            io::Error::new(
+                                io::ErrorKind::AddrInUse,
+                                format!(
+                                    "Kajas backend on {host}:{port} is from another version and no alternate port is available"
+                                ),
+                            )
+                        })?;
+                }
             }
 
             if !backend_is_ready(&host, port) {
@@ -206,6 +224,42 @@ fn should_reuse_existing_backend() -> bool {
         env::var("KAJAS_DESKTOP_REUSE_BACKEND").ok().as_deref(),
         Some("0") | Some("false") | Some("FALSE") | Some("no") | Some("NO")
     )
+}
+
+fn should_force_reuse_existing_backend() -> bool {
+    matches!(
+        env::var("KAJAS_DESKTOP_REUSE_BACKEND").ok().as_deref(),
+        Some("1") | Some("true") | Some("TRUE") | Some("yes") | Some("YES")
+    )
+}
+
+fn backend_version_matches(host: &str, port: u16) -> bool {
+    let url = format!("http://{host}:{port}/api/auth/status");
+    let body = match ureq::get(&url)
+        .timeout(Duration::from_millis(800))
+        .call()
+    {
+        Ok(response) => match response.into_string() {
+            Ok(body) => body,
+            Err(_) => return false,
+        },
+        Err(_) => return false,
+    };
+    let expected = format!("\"version\":\"{}\"", env!("CARGO_PKG_VERSION"));
+    body.replace(' ', "").contains(&expected)
+}
+
+fn find_available_port(host: &str, start: u16, attempts: u16) -> Option<u16> {
+    for offset in 0..attempts {
+        let candidate = start.saturating_add(offset);
+        if candidate == 0 {
+            continue;
+        }
+        if !port_is_open(host, candidate) {
+            return Some(candidate);
+        }
+    }
+    None
 }
 
 fn frontend_url(host: &str, port: u16) -> String {
