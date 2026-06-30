@@ -32,8 +32,9 @@ SYSTEM_PROMPT = (
     "currency conversion. Anything else (for example weather forecasts or knowledge-base search) is "
     "out of scope — politely decline instead of calling a tool. "
     "When you book a room, always provide ISO-8601 UTC start and end times. "
-    "When you convert currency, use the official Halcyon exchange rates via the provided tools "
-    "and state the final numeric amount plainly (no thousands separators, e.g. 29850.75 not 29,850.75)."
+    "When you convert currency, use the official Halcyon exchange rates via the provided tools. "
+    "For final answers, round converted currency amounts to exactly 2 decimal places and state "
+    "the final numeric amount plainly (no thousands separators, e.g. 29850.75 not 29,850.75)."
 )
 
 # ---------------------------------------------------------------------------
@@ -306,7 +307,7 @@ def tool_schemas(include_kb_decoy: bool = True, exclude: list[str] | None = None
             "type": "function",
             "function": {
                 "name": "usd_to_eur",
-                "description": "Convert a USD amount to EUR using the official Halcyon rate.",
+                "description": "Convert a USD amount to EUR using the official Halcyon rate. Intermediate converted values may be unrounded; round only the final answer to 2 decimal places.",
                 "parameters": {
                     "type": "object",
                     "additionalProperties": False,
@@ -321,7 +322,7 @@ def tool_schemas(include_kb_decoy: bool = True, exclude: list[str] | None = None
             "type": "function",
             "function": {
                 "name": "eur_to_jpy",
-                "description": "Convert an EUR amount to JPY using the official Halcyon rate.",
+                "description": "Convert an EUR amount to JPY using the official Halcyon rate. Intermediate converted values may be unrounded; round the final answer to 2 decimal places.",
                 "parameters": {
                     "type": "object",
                     "additionalProperties": False,
@@ -432,6 +433,13 @@ class AgencyTrace:
     def used_kb(self) -> bool:
         return "kb_search" in self.tool_names
 
+    def result_for_call(self, call: dict[str, Any]) -> dict[str, Any] | None:
+        """Return the tool result at the same trace position as ``call``."""
+        for i, candidate in enumerate(self.tool_calls):
+            if candidate is call:
+                return self.results[i] if i < len(self.results) else None
+        return None
+
 
 def _takes_scenario(check: Callable[..., Any]) -> bool:
     try:
@@ -505,7 +513,7 @@ def _directory_lists(department: str, *, active_only: bool, expected_count: int 
             return False, f"wrong department filter: {args.get('department')}"
         if active_only and not args.get("active_only"):
             return False, "missing active_only=true"
-        result = t.results[-1] if t.results else {}
+        result = t.result_for_call(calls[0]) or {}
         staff = result.get("staff") if isinstance(result, dict) else None
         if staff is None:
             return True, "directory_search called with correct filters"
@@ -516,26 +524,39 @@ def _directory_lists(department: str, *, active_only: bool, expected_count: int 
 
 
 def _booking_correct(room: str, start: datetime, end: datetime, *, purpose_substring: str | None = None, allow_check_only: bool = False):
-    def _check(t: AgencyTrace) -> tuple[bool, str]:
-        book = t.called("book_room")
-        if not book:
-            if allow_check_only and t.called("check_availability"):
-                return True, "answered with an availability check"
-            return False, "did not call book_room"
-        if len(book) > 1:
-            return False, f"made {len(book)} bookings (expected 1)"
-        args = book[0]["args"]
+    def _validate_time_args(args: dict[str, Any]) -> tuple[bool, str, datetime | None, datetime | None]:
         if args.get("room", "").lower() != room.lower():
-            return False, f"wrong room: {args.get('room')}"
+            return False, f"wrong room: {args.get('room')}", None, None
         try:
             got_start = _parse_iso(args["start"])
             got_end = _parse_iso(args["end"])
         except Exception as exc:
-            return False, f"bad times: {exc}"
+            return False, f"bad times: {exc}", None, None
         if abs((got_start - start).total_seconds()) > 60:
-            return False, f"start {got_start.isoformat()} != {start.isoformat()}"
+            return False, f"start {got_start.isoformat()} != {start.isoformat()}", got_start, got_end
         if abs((got_end - end).total_seconds()) > 60:
-            return False, f"end {got_end.isoformat()} != {end.isoformat()}"
+            return False, f"end {got_end.isoformat()} != {end.isoformat()}", got_start, got_end
+        return True, "", got_start, got_end
+
+    def _check(t: AgencyTrace) -> tuple[bool, str]:
+        book = t.called("book_room")
+        if not book:
+            checks = t.called("check_availability")
+            if allow_check_only and checks:
+                ok, detail, _got_start, _got_end = _validate_time_args(checks[0]["args"])
+                if not ok:
+                    return False, detail
+                result = t.result_for_call(checks[0]) or {}
+                if isinstance(result, dict) and result.get("available") is False:
+                    return False, "reported an unavailable room as acceptable"
+                return True, "answered with a correct availability check"
+            return False, "did not call book_room"
+        if len(book) > 1:
+            return False, f"made {len(book)} bookings (expected 1)"
+        args = book[0]["args"]
+        ok, detail, got_start, _got_end = _validate_time_args(args)
+        if not ok:
+            return False, detail
         if purpose_substring and purpose_substring.lower() not in str(args.get("purpose", "")).lower():
             return False, f"purpose missing '{purpose_substring}': {args.get('purpose')}"
         if not any(b["room"].lower() == room.lower() and _parse_iso(b["start"]) == got_start for b in BOOKINGS):
@@ -544,7 +565,7 @@ def _booking_correct(room: str, start: datetime, end: datetime, *, purpose_subst
     return _check
 
 
-def _incident_correct(title: str, severity: str, assignee_id: str | None = None, *, assignee_name: str | None = None, require_title: bool = True):
+def _incident_correct(title: str, severity: str, assignee_id: str | None = None, *, assignee_name: str | None = None, assignee_team: str | None = None, require_title: bool = True):
     def _check(t: AgencyTrace) -> tuple[bool, str]:
         calls = t.called("create_incident")
         if not calls:
@@ -559,10 +580,16 @@ def _incident_correct(title: str, severity: str, assignee_id: str | None = None,
         got_assignee = args.get("assignee_id")
         if assignee_id and got_assignee != assignee_id:
             return False, f"assignee {got_assignee} != {assignee_id}"
+        if (assignee_name or assignee_team) and not got_assignee:
+            return False, "missing assignee_id"
         if assignee_name and got_assignee:
             emp = EMPLOYEE_BY_ID.get(got_assignee)
             if not emp or emp["name"] != assignee_name:
                 return False, f"assignee resolves to {emp['name'] if emp else None} != {assignee_name}"
+        if assignee_team and got_assignee:
+            emp = EMPLOYEE_BY_ID.get(got_assignee)
+            if not emp or emp["team"].lower() != assignee_team.lower():
+                return False, f"assignee team {emp['team'] if emp else None} != {assignee_team}"
         return True, f"incident severity={severity} assignee={got_assignee}"
     return _check
 
@@ -598,7 +625,7 @@ def _currency_chain_tools(amount: float, from_c: str, to_c: str, via: str, tools
         if abs(first_amt - amount) > 0.001:
             return False, f"first tool amount {first_amt} != {amount}"
         # The second tool's input should match the first tool's converted output
-        first_result = t.results[t.tool_calls.index(t.called(tools[0])[0])]
+        first_result = t.result_for_call(t.called(tools[0])[0]) or {}
         first_converted = first_result.get("converted", 0) if isinstance(first_result, dict) else 0
         if abs(second_amt - first_converted) > 0.001:
             return False, f"second tool amount {second_amt} != first result {first_converted}"
@@ -651,12 +678,20 @@ def _restraint_no_tool():
     return _check
 
 
-def _focus_ignore_kb(expected_tool: str):
+def _focus_ignore_kb(expected_tool: str, *, expected_field: str | None = None, expected_value: str | None = None):
     def _check(t: AgencyTrace) -> tuple[bool, str]:
         if t.used_kb:
             return False, "called kb_search decoy (focus failure)"
-        if expected_tool not in t.tool_names:
+        calls = t.called(expected_tool)
+        if not calls:
             return False, f"did not call {expected_tool}"
+        if expected_field and expected_value is not None:
+            result = t.result_for_call(calls[0]) or {}
+            got = result.get(expected_field) if isinstance(result, dict) else None
+            if str(got).lower() != expected_value.lower():
+                return False, f"{expected_field} {got} != {expected_value}"
+            if expected_value.lower() not in t.final_text.lower():
+                return False, f"final answer missing {expected_value}"
         return True, f"used {expected_tool}, ignored kb decoy"
     return _check
 
@@ -701,13 +736,14 @@ SCENARIOS: list[Scenario] = [
              _incident_correct("", "high", assignee_name="Dana Roth", require_title=False)),
     Scenario("agency.chain.runway_incident", "multi_step",
              "Create a medium incident and put it on someone from the Runway team.",
-             _incident_correct("", "medium", assignee_id="S07", require_title=False)),
+             _incident_correct("", "medium", assignee_team="Runway", require_title=False)),
     # --- Currency ---
     Scenario("agency.cur.eur_usd", "currency", "Convert 750 EUR to USD at the official Halcyon rate.",
              _currency_exact(750, "EUR", "USD")),
     Scenario("agency.cur.usd_jpy", "currency",
              "What is 200 USD worth in JPY, using the official Halcyon rate? "
-             "There is no direct USD-to-JPY conversion available — you must chain the provided tools to get the answer.",
+             "There is no direct USD-to-JPY conversion available — you must chain the provided tools to get the answer. "
+             "Round the final JPY amount to exactly 2 decimal places.",
              _currency_chain_tools(200, "USD", "JPY", "EUR", ["usd_to_eur", "eur_to_jpy"]),
              only_tools=["usd_to_eur", "eur_to_jpy"]),
     # --- Restraint & focus ---
@@ -719,10 +755,10 @@ SCENARIOS: list[Scenario] = [
              _restraint_no_tool(), include_kb_decoy=True),
     Scenario("agency.focus.mira_team_direct", "focus",
              "Which team is Mira Voss on? Use the staff directory directly.",
-             _focus_ignore_kb("staff_lookup"), include_kb_decoy=True),
+             _focus_ignore_kb("staff_lookup", expected_field="team", expected_value="Runway"), include_kb_decoy=True),
     Scenario("agency.focus.mira_team_plain", "focus",
              "Which team is Mira Voss on?",
-             _focus_ignore_kb("staff_lookup"), include_kb_decoy=True),
+             _focus_ignore_kb("staff_lookup", expected_field="team", expected_value="Runway"), include_kb_decoy=True),
 ]
 
 

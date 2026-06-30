@@ -98,10 +98,12 @@ def test_checker_restraint_requires_no_tools_and_text():
     assert sc.check(t)[0] is False
 
 
-def test_checker_focus_penalises_kb_decoy():
+def test_checker_focus_penalises_kb_decoy_and_requires_correct_answer():
     sc = next(s for s in SCENARIOS if s.id == "agency.focus.mira_team_direct")
-    t_ok = _with_call("staff_lookup", {"name": "Mira Voss"})
+    t_ok = _with_call("staff_lookup", {"name": "Mira Voss"}, final_text="Mira Voss is on Runway.")
     assert sc.check(t_ok)[0] is True
+    t_wrong_text = _with_call("staff_lookup", {"name": "Mira Voss"}, final_text="Mira Voss is on Platform.")
+    assert sc.check(t_wrong_text)[0] is False
     t_decoy = AgencyTrace()
     t_decoy.tool_calls.append({"name": "kb_search", "args": {"query": "Mira team"}})
     assert sc.check(t_decoy)[0] is False
@@ -119,6 +121,13 @@ def test_checker_booking_validates_iso_times():
     # wrong room -> fail
     t2 = _with_call("book_room", {"room": "Atrium", "start": siso, "end": eiso, "purpose": "standup"})
     assert sc.check(t2)[0] is False
+
+    avail = next(s for s in SCENARIOS if s.id == "agency.sched.foxglove_avail")
+    avail.reset()
+    t3 = _with_call("check_availability", {"room": "Foxglove", "start": siso, "end": eiso})
+    assert avail.check(t3)[0] is True
+    t4 = _with_call("check_availability", {"room": "Foxglove", "start": "2026-05-29T16:00:00Z", "end": "2026-05-29T17:00:00Z"})
+    assert avail.check(t4)[0] is False
 
 
 def test_checker_currency_requires_final_answer_to_contain_converted_amount():
@@ -165,6 +174,33 @@ def test_checker_currency_chain_requires_two_rate_calls():
     ok, detail = sc.check(t_wrong_order)
     assert ok is False
     assert "first tool amount" in detail or "second tool amount" in detail
+
+    # Numerically correct unrounded chained output should fail: benchmark expects final rounding.
+    t_unrounded = AgencyTrace()
+    t_unrounded.tool_calls.append({"name": "usd_to_eur", "args": {"amount": 200}})
+    t_unrounded.results.append(dispatch_tool("usd_to_eur", {"amount": 200}))
+    t_unrounded.tool_calls.append({"name": "eur_to_jpy", "args": {"amount": t_unrounded.results[0]["converted"]}})
+    t_unrounded.results.append(dispatch_tool("eur_to_jpy", {"amount": t_unrounded.results[0]["converted"]}))
+    t_unrounded.final_text = f"200 USD = {t_unrounded.results[1]['converted']} JPY"
+    ok, detail = sc.check(t_unrounded)
+    assert ok is False
+    assert "29850.75" in detail
+
+
+def test_incident_checker_requires_named_assignee_and_accepts_any_runway_member():
+    support = next(s for s in SCENARIOS if s.id == "agency.chain.support_lead_incident")
+    t_missing = _with_call("create_incident", {"title": "x", "severity": "high"})
+    assert support.check(t_missing)[0] is False
+
+    runway = next(s for s in SCENARIOS if s.id == "agency.chain.runway_incident")
+    t_runway_engineer = _with_call("create_incident", {"title": "x", "severity": "medium", "assignee_id": "S01"})
+    assert runway.check(t_runway_engineer)[0] is True
+
+
+def test_currency_prompts_explicitly_require_final_rounding():
+    usd_jpy = next(s for s in SCENARIOS if s.id == "agency.cur.usd_jpy")
+    assert "Round the final JPY amount to exactly 2 decimal places." in usd_jpy.prompt
+    assert "round converted currency amounts to exactly 2 decimal places" in agency_bench.SYSTEM_PROMPT
 
 
 def test_scenarios_are_deterministic_and_have_unique_ids():
