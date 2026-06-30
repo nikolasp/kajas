@@ -26,7 +26,7 @@ from fastapi import (
     Response,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -45,7 +45,9 @@ from .benchmarks import (
     BenchmarkInput,
     DEFAULT_BENCHMARK_STORE,
     cancel_benchmark_task,
+    judge_coding_test_with_llm,
     start_benchmark_task,
+    update_coding_test_score,
 )
 from .config import (
     AuthConfig,
@@ -169,6 +171,12 @@ class ApprovePlanIn(BaseModel):
 class OverrideIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     yaml: str
+
+
+class CodingScoreIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    score: float = Field(ge=0, le=10)
+    notes: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -543,6 +551,65 @@ def _wire_routes(app: FastAPI) -> None:
             raise HTTPException(status_code=404, detail="benchmark not found")
         return run.model_dump(mode="json")
 
+    @app.get("/api/benchmarks/{run_id}/coding/{test_name}/preview", response_class=HTMLResponse)
+    async def preview_coding_test(
+        run_id: str,
+        test_name: str,
+        chrome: bool = Query(False),
+        _: SessionUser = Depends(require_user),
+    ) -> HTMLResponse:
+        run = DEFAULT_BENCHMARK_STORE.read(run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="benchmark not found")
+        test = next(
+            (item for item in run.tests if item.get("name") == test_name and str(test_name).startswith("coding_")),
+            None,
+        )
+        if test is None:
+            raise HTTPException(status_code=404, detail="coding test not found")
+        html = str(test.get("artifact") or "")
+        if not html:
+            raise HTTPException(status_code=404, detail="coding artifact not found")
+        if chrome:
+            html = _with_preview_chrome(html)
+        return HTMLResponse(content=html, headers={"Cache-Control": "no-store"})
+
+    @app.post("/api/benchmarks/{run_id}/coding/{test_name}/score")
+    async def score_coding_test(
+        run_id: str,
+        test_name: str,
+        payload: CodingScoreIn,
+        _: SessionUser = Depends(require_user),
+    ) -> dict[str, Any]:
+        try:
+            run = update_coding_test_score(
+                run_id,
+                test_name,
+                judge_score=payload.score,
+                detail=payload.notes,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        if run is None:
+            raise HTTPException(status_code=404, detail="benchmark not found")
+        return run.model_dump(mode="json")
+
+    @app.post("/api/benchmarks/{run_id}/coding/{test_name}/judge")
+    async def judge_coding_test(
+        run_id: str,
+        test_name: str,
+        _: SessionUser = Depends(require_user),
+    ) -> dict[str, Any]:
+        try:
+            run = judge_coding_test_with_llm(run_id, test_name)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        if run is None:
+            raise HTTPException(status_code=404, detail="benchmark not found")
+        return run.model_dump(mode="json")
+
     @app.post("/api/benchmarks/{run_id}/cancel")
     async def cancel_benchmark(
         run_id: str, _: SessionUser = Depends(require_user)
@@ -729,6 +796,42 @@ def _run_summary(
     return out
 
 
+def _with_preview_chrome(html: str) -> str:
+    chrome = """
+<style id="kajas-preview-chrome-style">
+  #kajas-preview-close {
+    position: fixed;
+    top: 14px;
+    right: 14px;
+    z-index: 2147483647;
+    border: 1px solid rgba(255,255,255,.22);
+    border-radius: 999px;
+    background: rgba(15, 23, 42, .88);
+    color: white;
+    font: 600 13px/1 system-ui, -apple-system, Segoe UI, sans-serif;
+    padding: 10px 14px;
+    box-shadow: 0 12px 32px rgba(0,0,0,.28);
+    cursor: pointer;
+    backdrop-filter: blur(8px);
+  }
+  #kajas-preview-close:hover { background: rgba(30, 41, 59, .95); }
+</style>
+<button id="kajas-preview-close" type="button" aria-label="Close preview">Close preview</button>
+<script id="kajas-preview-chrome-script">
+  document.getElementById('kajas-preview-close')?.addEventListener('click', function () {
+    if (window.opener) window.close();
+    else if (history.length > 1) history.back();
+    else location.href = '/benchmarks/run';
+  });
+</script>
+"""
+    lower = html.lower()
+    index = lower.rfind("</body>")
+    if index >= 0:
+        return html[:index] + chrome + html[index:]
+    return html + chrome
+
+
 def _benchmark_summary(run: Any) -> dict[str, Any]:
     return {
         "id": run.id,
@@ -740,6 +843,7 @@ def _benchmark_summary(run: Any) -> dict[str, Any]:
         "configured_model": run.configured_model,
         "context_window": run.context_window,
         "effective_context_window": run.effective_context_window,
+        "coding_judge_mode": getattr(run, "coding_judge_mode", "human"),
         "coding_judge_tool": run.coding_judge_tool,
         "coding_judge_model": run.coding_judge_model,
         "scores": run.scores,

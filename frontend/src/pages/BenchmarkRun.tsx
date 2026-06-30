@@ -21,6 +21,7 @@ export function BenchmarkRun() {
   const [model, setModel] = useState("");
   const [headersText, setHeadersText] = useState("");
   const [maxContext, setMaxContext] = useState("32768");
+  const [judgeMode, setJudgeMode] = useState<"human" | "llm">("human");
   const [judgeTool, setJudgeTool] = useState<"codex" | "pi">("codex");
   const [judgeModel, setJudgeModel] = useState("gpt-5.5");
   const [submitting, setSubmitting] = useState(false);
@@ -85,6 +86,7 @@ export function BenchmarkRun() {
         custom_headers: parseHeaders(headersText),
         model: model.trim() || null,
         max_context_tokens: maxContext.trim() ? Number(maxContext) : null,
+        coding_judge_mode: judgeMode,
         coding_judge_tool: judgeTool,
         coding_judge_model: judgeModel.trim() || "gpt-5.5",
       });
@@ -104,6 +106,7 @@ export function BenchmarkRun() {
     setApiKey("");
     setHeadersText("");
     setMaxContext(String(run.effective_context_window || 32768));
+    setJudgeMode(run.coding_judge_mode || "human");
     setJudgeTool(run.coding_judge_tool || "codex");
     setJudgeModel(run.coding_judge_model || "gpt-5.5");
     setNewRunOpen(true);
@@ -142,6 +145,32 @@ export function BenchmarkRun() {
       setError(e.detail || "Failed to delete benchmark");
     } finally {
       setDeletingId(null);
+    }
+  }
+
+  async function scoreCodingTest(testName: string, score: number, notes?: string) {
+    if (!detail) return;
+    if (!Number.isFinite(score) || score < 0 || score > 10) {
+      setError("Score must be a number from 0 to 10");
+      return;
+    }
+    try {
+      const updated = await api.scoreCodingTest(detail.id, testName, { score, notes: notes || undefined });
+      setDetail(updated);
+      await reload();
+    } catch (e: any) {
+      setError(e.detail || "Failed to save coding score");
+    }
+  }
+
+  async function judgeCodingTest(testName: string) {
+    if (!detail) return;
+    try {
+      const updated = await api.judgeCodingTest(detail.id, testName);
+      setDetail(updated);
+      await reload();
+    } catch (e: any) {
+      setError(e.detail || "Failed to run LLM judge");
     }
   }
 
@@ -219,7 +248,15 @@ export function BenchmarkRun() {
             ) : (
               <div className="divide-y divide-ink-800">
                 {detail.tests.map((test) => (
-                  <TestRow key={test.name} test={test} raw={detail.raw} />
+                  <TestRow
+                    key={test.name}
+                    runId={detail.id}
+                    test={test}
+                    raw={detail.raw}
+                    canReview={detail.status !== "running" && String(test.name || "").startsWith("coding_")}
+                    onScore={(score, notes) => scoreCodingTest(String(test.name), score, notes)}
+                    onJudge={() => judgeCodingTest(String(test.name))}
+                  />
                 ))}
               </div>
             )}
@@ -345,6 +382,7 @@ export function BenchmarkRun() {
           model={model}
           headersText={headersText}
           maxContext={maxContext}
+          judgeMode={judgeMode}
           judgeTool={judgeTool}
           judgeModel={judgeModel}
           submitting={submitting}
@@ -355,6 +393,7 @@ export function BenchmarkRun() {
           onModelChange={setModel}
           onHeadersTextChange={setHeadersText}
           onMaxContextChange={setMaxContext}
+          onJudgeModeChange={setJudgeMode}
           onJudgeToolChange={setJudgeTool}
           onJudgeModelChange={setJudgeModel}
         />
@@ -369,6 +408,7 @@ function NewRunModal({
   model,
   headersText,
   maxContext,
+  judgeMode,
   judgeTool,
   judgeModel,
   submitting,
@@ -379,6 +419,7 @@ function NewRunModal({
   onModelChange,
   onHeadersTextChange,
   onMaxContextChange,
+  onJudgeModeChange,
   onJudgeToolChange,
   onJudgeModelChange,
 }: {
@@ -387,6 +428,7 @@ function NewRunModal({
   model: string;
   headersText: string;
   maxContext: string;
+  judgeMode: "human" | "llm";
   judgeTool: "codex" | "pi";
   judgeModel: string;
   submitting: boolean;
@@ -397,6 +439,7 @@ function NewRunModal({
   onModelChange: (value: string) => void;
   onHeadersTextChange: (value: string) => void;
   onMaxContextChange: (value: string) => void;
+  onJudgeModeChange: (value: "human" | "llm") => void;
   onJudgeToolChange: (value: "codex" | "pi") => void;
   onJudgeModelChange: (value: string) => void;
 }) {
@@ -464,7 +507,7 @@ function NewRunModal({
               />
             </label>
           </div>
-          <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_8rem_minmax(0,1fr)]">
+          <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_9rem_8rem_minmax(0,1fr)]">
             <label className="block space-y-1">
               <span className="label">Max context tokens</span>
               <input
@@ -475,6 +518,17 @@ function NewRunModal({
                 value={maxContext}
                 onChange={(e) => onMaxContextChange(e.target.value)}
               />
+            </label>
+            <label className="block space-y-1">
+              <span className="label">Coding review</span>
+              <select
+                className="input"
+                value={judgeMode}
+                onChange={(e) => onJudgeModeChange(e.target.value as "human" | "llm")}
+              >
+                <option value="human">Human</option>
+                <option value="llm">LLM judge</option>
+              </select>
             </label>
             <label className="block space-y-1">
               <span className="label">Judge</span>
@@ -497,6 +551,7 @@ function NewRunModal({
               />
             </label>
           </div>
+          <p className="text-xs text-ink-500">Human review is the default: generated HTML is previewed and coding scores can be entered after the run. Use LLM judge to auto-score during the run or from a coding test row.</p>
           <label className="block space-y-1">
             <span className="label">Custom headers</span>
             <textarea
@@ -520,9 +575,30 @@ function NewRunModal({
   );
 }
 
-function TestRow({ test, raw }: { test: Record<string, any>; raw: Array<Record<string, any>> }) {
+function TestRow({
+  runId,
+  test,
+  raw,
+  canReview = false,
+  onScore,
+  onJudge,
+}: {
+  runId: string;
+  test: Record<string, any>;
+  raw: Array<Record<string, any>>;
+  canReview?: boolean;
+  onScore?: (score: number, notes?: string) => void;
+  onJudge?: () => void;
+}) {
   const artifact = testArtifact(test, raw);
   const previewHtml = htmlPreviewSource(test, artifact.result);
+  const previewUrl = previewHtml ? codingPreviewUrl(runId, String(test.name || "")) : null;
+  const currentJudgeScore = Number(test.metadata?.judge_score || 0);
+  const [scoreDraft, setScoreDraft] = useState(currentJudgeScore > 0 ? String(currentJudgeScore) : "");
+  const [notesDraft, setNotesDraft] = useState("");
+  const numericScore = Number(scoreDraft);
+  const scoreIsValid = Number.isFinite(numericScore) && numericScore >= 0 && numericScore <= 10;
+  const quickScores = [0, 2, 4, 6, 8, 10];
   return (
     <details className="group px-5 py-3 text-sm">
       <summary className="grid cursor-pointer list-none gap-3 md:grid-cols-[1fr_5rem]">
@@ -538,7 +614,76 @@ function TestRow({ test, raw }: { test: Record<string, any>; raw: Array<Record<s
           <span className="font-mono text-ink-200">{Number(test.score || 0).toFixed(2)}</span>
         </div>
       </summary>
-      {previewHtml && <HtmlPreview html={previewHtml} />}
+      {previewHtml && previewUrl && <HtmlPreview html={previewHtml} previewUrl={previewUrl} />}
+      {canReview && (
+        <div className="mt-4 overflow-hidden rounded-xl border border-accent-500/25 bg-gradient-to-br from-ink-900 via-ink-900 to-accent-950/20 shadow-inner">
+          <div className="flex flex-wrap items-start justify-between gap-3 border-b border-ink-700/70 px-4 py-3">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-[0.2em] text-accent-300">Human coding review</div>
+              <p className="mt-1 text-xs text-ink-400">Play the preview, pick a score, and save it to update the benchmark.</p>
+            </div>
+            <div className="rounded-full border border-ink-700 bg-ink-950 px-3 py-1 font-mono text-xs text-ink-300">
+              current {currentJudgeScore.toFixed(1)}/10
+            </div>
+          </div>
+          <div className="grid gap-4 p-4 lg:grid-cols-[14rem_minmax(0,1fr)_auto] lg:items-end">
+            <label className="block space-y-2">
+              <span className="label">Score</span>
+              <div className="flex items-center gap-2">
+                <input
+                  className="input h-14 w-24 text-center font-mono text-2xl"
+                  type="number"
+                  min={0}
+                  max={10}
+                  step={0.1}
+                  value={scoreDraft}
+                  onChange={(e) => setScoreDraft(e.target.value)}
+                  placeholder="0–10"
+                />
+                <span className="font-mono text-ink-500">/10</span>
+              </div>
+            </label>
+            <div className="space-y-2">
+              <span className="label">Quick score</span>
+              <div className="grid grid-cols-6 gap-1 rounded-lg border border-ink-700 bg-ink-950 p-1">
+                {quickScores.map((score) => (
+                  <button
+                    key={score}
+                    type="button"
+                    className={`rounded-md px-2 py-2 font-mono text-xs transition ${Number(scoreDraft) === score ? "bg-accent-500 text-white" : "text-ink-400 hover:bg-ink-800 hover:text-ink-100"}`}
+                    onClick={() => setScoreDraft(String(score))}
+                  >
+                    {score}
+                  </button>
+                ))}
+              </div>
+              {!scoreIsValid && scoreDraft && <p className="text-xs text-rose-300">Enter a score from 0 to 10.</p>}
+            </div>
+            <div className="flex flex-wrap gap-2 lg:justify-end">
+              <button
+                type="button"
+                className="btn-primary"
+                disabled={!scoreIsValid}
+                onClick={() => onScore?.(numericScore, notesDraft)}
+              >
+                Save score
+              </button>
+              <button type="button" className="btn" onClick={onJudge}>Ask LLM judge</button>
+            </div>
+          </div>
+          <div className="border-t border-ink-800 px-4 pb-4 pt-3">
+            <label className="block space-y-2">
+              <span className="label">Review notes</span>
+              <textarea
+                className="input min-h-20 resize-y"
+                value={notesDraft}
+                onChange={(e) => setNotesDraft(e.target.value)}
+                placeholder="Optional: what worked, what failed, and why this score fits."
+              />
+            </label>
+          </div>
+        </div>
+      )}
       <div className="mt-4 grid gap-3 xl:grid-cols-3">
         <TestArtifact title="Prompt" value={artifact.prompt} />
         <TestArtifact title="Result" value={artifact.result} />
@@ -561,7 +706,7 @@ function TestArtifact({ title, value }: { title: string | null; value: string | 
   );
 }
 
-function HtmlPreview({ html }: { html: string }) {
+function HtmlPreview({ html, previewUrl }: { html: string; previewUrl: string }) {
   return (
     <div className="mt-4 rounded-lg border border-accent-500/30 bg-ink-950 p-3">
       <div className="flex items-center justify-between gap-3">
@@ -569,19 +714,20 @@ function HtmlPreview({ html }: { html: string }) {
           <div className="label">Web preview</div>
           <p className="mt-1 text-xs text-ink-500">Sandboxed render of the generated single-file HTML.</p>
         </div>
-        <button
-          type="button"
-          className="btn"
-          onClick={() => openHtmlPreview(html)}
-        >
-          Open full page
-        </button>
+        <div className="flex gap-2">
+          <button type="button" className="btn" onClick={() => openPreviewUrl(`${previewUrl}?chrome=1`)}>
+            Open full page
+          </button>
+          <button type="button" className="btn" onClick={() => downloadHtml(html)}>
+            Download HTML
+          </button>
+        </div>
       </div>
       <iframe
         title="Generated HTML preview"
         className="mt-3 h-[460px] w-full rounded-md border border-ink-700 bg-white"
-        sandbox="allow-scripts allow-forms allow-pointer-lock"
-        srcDoc={html}
+        sandbox="allow-scripts allow-forms allow-pointer-lock allow-same-origin"
+        src={previewUrl}
       />
     </div>
   );
@@ -624,7 +770,7 @@ function ScoreBoard({ run }: { run: BenchmarkSummary | BenchmarkDetail | null })
                 <div className="mt-1 font-mono">{run.effective_context_window.toLocaleString()} ctx</div>
               )}
               <div className="mt-1 font-mono">
-                {run.coding_judge_tool}/{run.coding_judge_model}
+                coding: {run.coding_judge_mode || "human"} · {run.coding_judge_tool}/{run.coding_judge_model}
               </div>
             </div>
           </div>
@@ -779,11 +925,33 @@ function extractHtmlDocument(value: string) {
   return text.slice(htmlStart).trim();
 }
 
-function openHtmlPreview(html: string) {
+function codingPreviewUrl(runId: string, testName: string) {
+  return `/api/benchmarks/${encodeURIComponent(runId)}/coding/${encodeURIComponent(testName)}/preview`;
+}
+
+function openPreviewUrl(url: string) {
+  const absoluteUrl = new URL(url, window.location.origin).toString();
+  if (isTauriDesktop()) {
+    window.location.assign(absoluteUrl);
+    return;
+  }
+  window.open(absoluteUrl, "_blank", "noopener,noreferrer");
+}
+
+function isTauriDesktop() {
+  return Boolean((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__);
+}
+
+function downloadHtml(html: string) {
   const blob = new Blob([html], { type: "text/html" });
   const url = URL.createObjectURL(blob);
-  window.open(url, "_blank", "noopener,noreferrer");
-  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "generated-preview.html";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
 }
 
 function promptFromRaw(entries: Array<Record<string, any>>) {

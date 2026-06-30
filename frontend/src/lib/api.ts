@@ -139,6 +139,7 @@ export const api = {
     custom_headers?: Record<string, string>;
     model?: string | null;
     max_context_tokens?: number | null;
+    coding_judge_mode?: "human" | "llm";
     coding_judge_tool?: "codex" | "pi";
     coding_judge_model?: string;
   }) =>
@@ -148,6 +149,15 @@ export const api = {
     }),
   benchmark: (id: string) =>
     request<any>(`/api/benchmarks/${encodeURIComponent(id)}`),
+  scoreCodingTest: (id: string, testName: string, input: { score: number; notes?: string | null }) =>
+    request<any>(`/api/benchmarks/${encodeURIComponent(id)}/coding/${encodeURIComponent(testName)}/score`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  judgeCodingTest: (id: string, testName: string) =>
+    request<any>(`/api/benchmarks/${encodeURIComponent(id)}/coding/${encodeURIComponent(testName)}/judge`, {
+      method: "POST",
+    }),
   cancelBenchmark: (id: string) =>
     request<any>(`/api/benchmarks/${encodeURIComponent(id)}/cancel`, {
       method: "POST",

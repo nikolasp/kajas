@@ -110,6 +110,7 @@ export interface BenchmarkSummary {
   configured_model: string | null;
   context_window: number | null;
   effective_context_window: number | null;
+  coding_judge_mode: "human" | "llm";
   coding_judge_tool: "codex" | "pi";
   coding_judge_model: string;
   scores: Record<string, number>;

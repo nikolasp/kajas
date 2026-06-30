@@ -41,6 +41,7 @@ class BenchmarkInput(BaseModel):
     custom_headers: dict[str, str] = Field(default_factory=dict)
     model: str | None = None
     max_context_tokens: int | None = Field(default=32768, ge=1024, le=262144)
+    coding_judge_mode: Literal["human", "llm"] = "human"
     coding_judge_tool: Literal["codex", "pi"] = "codex"
     coding_judge_model: str = "gpt-5.5"
 
@@ -56,6 +57,7 @@ class BenchmarkRun(BaseModel):
     context_window: int | None = None
     effective_context_window: int | None = None
     max_context_tokens: int | None = None
+    coding_judge_mode: Literal["human", "llm"] = "human"
     coding_judge_tool: Literal["codex", "pi"] = "codex"
     coding_judge_model: str = "gpt-5.5"
     scoring_version: str | None = None
@@ -88,6 +90,7 @@ class BenchmarkStore:
             base_url=payload.base_url.rstrip("/"),
             configured_model=payload.model or None,
             max_context_tokens=payload.max_context_tokens,
+            coding_judge_mode=payload.coding_judge_mode,
             coding_judge_tool=payload.coding_judge_tool,
             coding_judge_model=payload.coding_judge_model,
             scoring_version=SCORING_VERSION,
@@ -733,11 +736,12 @@ async def _context_tests(client: OpenAICompatClient, run: BenchmarkRun, model: s
 CODING_TESTS: list[dict[str, Any]] = [
     {
         "name": "coding_flappy_game",
-        "system": "You write compact, runnable browser games. Return only one HTML document.",
+        "system": "You write compact, runnable browser games. Return raw HTML only: no Markdown, no code fences, no explanations.",
         "prompt": (
             "Create a single-file Flappy Bird style browser game. It must include HTML, CSS, "
             "and JavaScript in one document, keyboard controls, collision detection, scoring, "
-            "restart after game over, and no external assets."
+            "restart after game over, and no external assets. Return only the complete HTML document, "
+            "starting with <!doctype html> or <html>."
         ),
         "required_terms": ["<html", "<script", "collision", "score"],
         "rubric": (
@@ -755,7 +759,7 @@ CODING_TESTS: list[dict[str, Any]] = [
         "name": "coding_falling_sand_water",
         "system": (
             "Act as an expert software engineer specializing in low-level graphics and simulation algorithms. "
-            "Return only one complete HTML document."
+            "Return raw HTML only: no Markdown, no code fences, no explanations."
         ),
         "prompt": (
             "Write a complete, single-file \"Falling Sand & Water\" simulation in HTML5 Canvas and vanilla JavaScript.\n"
@@ -769,7 +773,7 @@ CODING_TESTS: list[dict[str, Any]] = [
             "4. Logic Rule: Iterate through the grid from the BOTTOM row up to the top row each frame to prevent particles from teleporting. "
             "Randomize whether left or right is checked first for horizontal movement.\n"
             "5. Add UI buttons to select the element (Sand, Water, Wall), a clear button, and allow drawing on the canvas with the mouse.\n\n"
-            "Provide only the full, working code block ready to be saved and opened in a browser."
+            "Return only the complete HTML document ready to be saved and opened in a browser, starting with <!doctype html> or <html>."
         ),
         "required_terms": ["<html", "<script", "canvas", "sand", "water", "wall"],
         "rubric": (
@@ -806,20 +810,23 @@ async def _coding_test(client: OpenAICompatClient, run: BenchmarkRun, model: str
             artifact = data["choices"][0]["message"].get("content") or ""
             lowered = artifact.lower()
             generation_ok = all(str(term).lower() in lowered for term in spec["required_terms"])
-            judge = _run_external_coding_judge(
-                artifact=artifact,
-                tool=run.coding_judge_tool,
-                model=run.coding_judge_model,
-                run=run,
-                test_name=spec["name"],
-                prompt=spec["prompt"],
-                rubric=spec["rubric"],
-            )
-            parsed = _extract_json_object(judge["text"])
-            judge_score = max(0.0, min(10.0, float(parsed.get("score", 0))))
-            if not generation_ok:
-                judge_score = min(judge_score, 3.5)
-            detail = parsed.get("notes") or "judge returned a score"
+            if run.coding_judge_mode == "llm":
+                judge = _run_external_coding_judge(
+                    artifact=artifact,
+                    tool=run.coding_judge_tool,
+                    model=run.coding_judge_model,
+                    run=run,
+                    test_name=spec["name"],
+                    prompt=spec["prompt"],
+                    rubric=spec["rubric"],
+                )
+                parsed = _extract_json_object(judge["text"])
+                judge_score = max(0.0, min(10.0, float(parsed.get("score", 0))))
+                if not generation_ok:
+                    judge_score = min(judge_score, 3.5)
+                detail = parsed.get("notes") or "judge returned a score"
+            else:
+                detail = "Pending human review. Open the web preview, then enter a 0–10 coding score or ask for an LLM judge."
         except Exception as exc:  # noqa: BLE001
             detail = str(exc)
         contribution = (judge_score / 10.0) * per_test_budget
@@ -833,6 +840,7 @@ async def _coding_test(client: OpenAICompatClient, run: BenchmarkRun, model: str
                 "artifact": artifact,
                 "metadata": {
                     "judge_score": round(judge_score, 2),
+                    "judge_mode": run.coding_judge_mode,
                     "max_score": round(per_test_budget, 2),
                     "prompt": spec["prompt"],
                     "rubric": spec["rubric"],
@@ -840,6 +848,100 @@ async def _coding_test(client: OpenAICompatClient, run: BenchmarkRun, model: str
             }
         )
     return total
+
+
+def update_coding_test_score(
+    run_id: str,
+    test_name: str,
+    *,
+    judge_score: float,
+    detail: str | None = None,
+    judge_mode: str = "human",
+    store: BenchmarkStore = DEFAULT_BENCHMARK_STORE,
+) -> BenchmarkRun | None:
+    run = store.read(run_id)
+    if run is None:
+        return None
+    if run.status == "running":
+        raise ValueError("cannot score a running benchmark")
+    test = _find_coding_test(run, test_name)
+    if test is None:
+        raise ValueError("coding test not found")
+    _apply_coding_score(run, test, judge_score, detail, judge_mode)
+    _recalculate_run_scores(run)
+    store.save(run)
+    return run
+
+
+def judge_coding_test_with_llm(
+    run_id: str,
+    test_name: str,
+    *,
+    store: BenchmarkStore = DEFAULT_BENCHMARK_STORE,
+) -> BenchmarkRun | None:
+    run = store.read(run_id)
+    if run is None:
+        return None
+    if run.status == "running":
+        raise ValueError("cannot judge a running benchmark")
+    test = _find_coding_test(run, test_name)
+    if test is None:
+        raise ValueError("coding test not found")
+    artifact = str(test.get("artifact") or "")
+    metadata = test.get("metadata") if isinstance(test.get("metadata"), dict) else {}
+    prompt = str(metadata.get("prompt") or "")
+    rubric = str(metadata.get("rubric") or "")
+    judge = _run_external_coding_judge(
+        artifact=artifact,
+        tool=run.coding_judge_tool,
+        model=run.coding_judge_model,
+        run=run,
+        test_name=test_name,
+        prompt=prompt,
+        rubric=rubric,
+    )
+    parsed = _extract_json_object(judge["text"])
+    score = max(0.0, min(10.0, float(parsed.get("score", 0))))
+    _apply_coding_score(run, test, score, parsed.get("notes") or "LLM judge returned a score", "llm")
+    _recalculate_run_scores(run)
+    store.save(run)
+    return run
+
+
+def _find_coding_test(run: BenchmarkRun, test_name: str) -> dict[str, Any] | None:
+    for test in run.tests:
+        if test.get("name") == test_name and str(test_name).startswith("coding_"):
+            return test
+    return None
+
+
+def _apply_coding_score(
+    run: BenchmarkRun,
+    test: dict[str, Any],
+    judge_score: float,
+    detail: str | None,
+    judge_mode: str,
+) -> None:
+    clamped = max(0.0, min(10.0, float(judge_score)))
+    budget = 10.0 / len(CODING_TESTS)
+    contribution = (clamped / 10.0) * budget
+    test["ok"] = clamped >= 7.0
+    test["score"] = round(contribution, 2)
+    test["detail"] = detail or f"{judge_mode} review scored {clamped:.1f}/10"
+    metadata = test.setdefault("metadata", {})
+    if isinstance(metadata, dict):
+        metadata["judge_score"] = round(clamped, 2)
+        metadata["judge_mode"] = judge_mode
+        metadata["max_score"] = round(budget, 2)
+
+
+def _recalculate_run_scores(run: BenchmarkRun) -> None:
+    coding_score = sum(_float_score(t.get("score")) for t in run.tests if str(t.get("name", "")).startswith("coding_"))
+    run.scores["coding"] = round(min(10.0, coding_score), 2)
+    run.scores["latency_reliability"] = round(_latency_score(run), 2)
+    run.total_score = round(sum(run.scores.values()), 2)
+    run.usable = run.total_score >= 70.0
+    run.summary = _summary(run)
 
 
 def _latency_score(run: BenchmarkRun) -> float:
