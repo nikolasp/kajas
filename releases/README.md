@@ -6,6 +6,50 @@ plus their published checksums and the publish recipe.
 
 [releases]: https://github.com/nikolasp/kajas/releases
 
+## v0.1.2 — macOS (Apple Silicon)
+
+| File | Target | Size | SHA-256 |
+| --- | --- | --- | --- |
+| `Kajas-0.1.2-macos-arm64.dmg` | macOS 11+ on Apple Silicon (arm64) | record after build | record after build |
+
+Release notes:
+
+- Adds coding benchmark human review as the default scoring path, with an
+  inline score entry panel and optional on-demand LLM judging.
+- Tightens coding prompts to request raw, single-file HTML only, improving
+  generated artifact previews.
+- Serves generated coding artifacts through a same-origin preview endpoint so
+  inline and full-page previews work reliably in browser and desktop builds.
+- Adds full-preview chrome with a close button for returning to Kajas in the
+  desktop app.
+
+### How this artifact is produced
+
+```bash
+cd frontend
+npm run tauri -- build --bundles dmg
+# -> frontend/src-tauri/target/release/bundle/dmg/Kajas_0.1.2_aarch64.dmg
+cp ../frontend/src-tauri/target/release/bundle/dmg/Kajas_0.1.2_aarch64.dmg \
+   releases/Kajas-0.1.2-macos-arm64.dmg
+shasum -a 256 releases/Kajas-0.1.2-macos-arm64.dmg > \
+   releases/Kajas-0.1.2-macos-arm64.dmg.sha256
+```
+
+### Publishing (run once per release)
+
+```bash
+gh release create v0.1.2 \
+  releases/Kajas-0.1.2-macos-arm64.dmg \
+  --title "Kajas v0.1.2" \
+  --notes-file releases/README.md
+```
+
+After publishing, this link becomes live:
+
+```
+https://github.com/nikolasp/kajas/releases/download/v0.1.2/Kajas-0.1.2-macos-arm64.dmg
+```
+
 ## v0.1.1 — macOS (Apple Silicon)
 
 | File | Target | Size | SHA-256 |
@@ -106,8 +150,8 @@ launch. To ship a build that opens with a normal double-click:
    ```
 3. Notarize and staple:
    ```bash
-   xcrun notarytool submit Kajas-0.1.1-macos-arm64.dmg \
+   xcrun notarytool submit Kajas-0.1.2-macos-arm64.dmg \
      --apple-id <apple-id> --team-id <team-id> --wait
-   xcrun stapler staple Kajas-0.1.1-macos-arm64.dmg
+   xcrun stapler staple Kajas-0.1.2-macos-arm64.dmg
    ```
 4. Re-record the SHA-256 and republish the release asset.
